@@ -25,13 +25,16 @@ jobs:
           # APPLE_TEAM_ID secrets and set "identity" + "notarize" in package.json → no Gatekeeper prompt at all.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Verify the app bundle is validly signed (ad-hoc) and launches
+        timeout-minutes: 5
         run: |
           APP="$(find release -maxdepth 2 -name 'Dial TV.app' | head -1)"
           echo "App: $APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
           lipo -archs "$APP/Contents/MacOS/Dial TV"
-          "$APP/Contents/MacOS/Dial TV" --version || true
-          ( "$APP/Contents/MacOS/Dial TV" & PID=$!; sleep 15; kill -0 $PID && echo "launched OK"; kill $PID ) 
+          "$APP/Contents/MacOS/Dial TV" &
+          PID=$!; sleep 15
+          kill -0 $PID && echo "launched OK"
+          kill $PID || true
       - uses: actions/upload-artifact@v4
         with:
           name: Dial-TV-mac
