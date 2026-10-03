@@ -1,6 +1,7 @@
-import { useEffect, type ReactNode } from 'react';
-import { X } from 'lucide-react';
-import type { Channel, Team } from '../types';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Lock, X } from 'lucide-react';
+import type { Channel, Program, Team } from '../types';
+import { sha256, useApp } from '../store/app';
 
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   useEffect(() => {
@@ -77,4 +78,108 @@ export function countdown(ms: number) {
   if (d) return `${d}d ${h}h`;
   if (h) return `${h}h ${m}m`;
   return `${m}m ${s % 60}s`;
+}
+
+// ---------- guide lookups (programs can number in the millions) ----------
+
+const progIndexCache = new WeakMap<Program[], Map<string, Program[]>>();
+
+/** Programs grouped by channel and sorted by start; built once per programs array. */
+export function programIndex(programs: Program[]) {
+  let m = progIndexCache.get(programs);
+  if (m) return m;
+  m = new Map();
+  for (const p of programs) {
+    const arr = m.get(p.channelId);
+    if (arr) arr.push(p);
+    else m.set(p.channelId, [p]);
+  }
+  for (const arr of m.values()) arr.sort((a, b) => a.start - b.start);
+  progIndexCache.set(programs, m);
+  return m;
+}
+
+/** Index of the first program starting after `at` (binary search). */
+function upper(list: Program[], at: number) {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid].start <= at) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+export function programAt(list: Program[] | undefined, at = Date.now()) {
+  if (!list?.length) return undefined;
+  const p = list[upper(list, at) - 1];
+  return p && p.end > at ? p : undefined;
+}
+
+export function programAfter(list: Program[] | undefined, at = Date.now()) {
+  if (!list?.length) return undefined;
+  for (let i = Math.max(0, upper(list, at) - 1); i < list.length; i++) if (list[i].start >= at) return list[i];
+  return undefined;
+}
+
+/** Re-render every `ms` and return the current time. */
+export function useNow(ms = 30_000) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+  return now;
+}
+
+// ---------- parental lock ----------
+
+/** True when the channel is locked, a PIN is set and this session isn't unlocked. */
+export function useLockedOut(channelId?: string) {
+  return useApp((s) => !!channelId && !!s.settings.lockPin && !s.unlocked && s.settings.locked.includes(channelId));
+}
+
+export function LockedScreen() {
+  return <div className="lockedScreen"><Lock /><span>Locked channel</span></div>;
+}
+
+export function PinPrompt({ title = 'Enter PIN', onOk, onClose }: { title?: string; onOk: () => void; onClose: () => void }) {
+  const [pin, setPin] = useState('');
+  const [bad, setBad] = useState(false);
+  return (
+    <Modal title={title} onClose={onClose}>
+      <form className="pinForm" onSubmit={async (e) => {
+        e.preventDefault();
+        if ((await sha256(pin)) === useApp.getState().settings.lockPin) onOk();
+        else { setBad(true); setPin(''); }
+      }}>
+        <Lock />
+        <p>Enter the parental PIN to continue.</p>
+        <input autoFocus type="password" inputMode="numeric" value={pin} onChange={(e) => { setPin(e.target.value); setBad(false); }} aria-label="PIN" />
+        {bad && <small className="err">Wrong PIN</small>}
+        <div className="row"><button type="button" className="ghost" onClick={onClose}>Cancel</button><button className="primary">OK</button></div>
+      </form>
+    </Modal>
+  );
+}
+
+/**
+ * Run an action only after the parental PIN is entered (when one is set).
+ * `always` asks even if this session was already unlocked.
+ */
+export function usePinGuard(always = false) {
+  const [pending, setPending] = useState<(() => void) | null>(null);
+  const guard = useCallback((fn: () => void) => {
+    const s = useApp.getState();
+    if (!s.settings.lockPin || (!always && s.unlocked)) fn();
+    else setPending(() => fn);
+  }, [always]);
+  const modal = pending && (
+    <PinPrompt
+      onOk={() => { setPending(null); useApp.setState({ unlocked: true }); pending(); }}
+      onClose={() => setPending(null)}
+    />
+  );
+  return [guard, modal] as const;
 }

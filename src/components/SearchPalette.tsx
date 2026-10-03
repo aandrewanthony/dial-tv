@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, Search, Star, Trophy, Tv } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { orderedChannels, useApp } from '../store/app';
 import { navigate } from '../app/router';
 import { matchBroadcasts } from '../lib/channelMatch';
@@ -16,7 +17,12 @@ interface Result {
 
 /** Unified global search across channels, programs, games, teams and leagues. */
 export function SearchPalette() {
-  const s = useApp();
+  const { channels, channelOrder, hidden, favorites, games, overrides, favTeams, programs } = useApp(useShallow((s) => ({
+    channels: s.channels, channelOrder: s.channelOrder, hidden: s.hidden, favorites: s.favorites, games: s.games,
+    overrides: s.networkOverrides, favTeams: s.favTeams, programs: s.programs,
+  })));
+  const { tune, update } = useApp.getState();
+  const ordered = useMemo(() => orderedChannels({ channels, channelOrder, hidden }), [channels, channelOrder, hidden]);
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -25,28 +31,28 @@ export function SearchPalette() {
   const results = useMemo<Result[]>(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) {
-      return orderedChannels(s).filter((c) => s.favorites.includes(c.id)).slice(0, 8).map((c) => ({
+      return ordered.filter((c) => favorites.includes(c.id)).slice(0, 8).map((c) => ({
         key: c.id, kind: 'channel', title: `${c.number} · ${c.name}`, sub: 'Favorite channel',
-        run: () => { s.tune(c.id); navigate('watch'); },
+        run: () => { tune(c.id); navigate('watch'); },
       }));
     }
     const out: Result[] = [];
-    for (const c of orderedChannels(s)) {
+    for (const c of ordered) {
       if (c.name.toLowerCase().includes(needle) || String(c.number) === needle || c.group.toLowerCase().includes(needle)) {
-        out.push({ key: c.id, kind: 'channel', title: `${c.number} · ${c.name}`, sub: c.group, run: () => { s.tune(c.id); navigate('watch'); } });
+        out.push({ key: c.id, kind: 'channel', title: `${c.number} · ${c.name}`, sub: c.group, run: () => { tune(c.id); navigate('watch'); } });
       }
       if (out.length > 12) break;
     }
-    const games = Object.values(s.games).filter((g) => g.state !== 'post' || Date.now() - g.start < 12 * 3600_000);
+    const live = Object.values(games).filter((g) => g.state !== 'post' || Date.now() - g.start < 12 * 3600_000);
     const teams = new Map<string, { league: string; abbr: string; name: string }>();
-    for (const g of games) {
+    for (const g of live) {
       const hay = `${g.home.name} ${g.away.name} ${g.home.abbr} ${g.away.abbr} ${leagueLabel(g.league)}`.toLowerCase();
       if (hay.includes(needle)) {
-        const m = matchBroadcasts(g.broadcasts, s.channels, s.networkOverrides);
+        const m = matchBroadcasts(g.broadcasts, channels, overrides);
         out.push({
           key: g.id, kind: 'game', title: `${g.away.name} @ ${g.home.name}`,
           sub: `${leagueLabel(g.league)} · ${g.state === 'in' ? 'LIVE' : g.state === 'post' ? 'Final' : `${fmtDay(g.start)} ${fmtTime(g.start)}`} · ${g.broadcasts[0] ?? 'TBD'}${m ? ` → ${m.channel.name}` : ''}`,
-          run: () => { if (m && g.state === 'in') { s.tune(m.channel.id); navigate('watch'); } else navigate('sports'); },
+          run: () => { if (m && g.state === 'in') { tune(m.channel.id); navigate('watch'); } else navigate('sports'); },
         });
       }
       for (const t of [g.home, g.away]) {
@@ -54,25 +60,25 @@ export function SearchPalette() {
       }
     }
     for (const [key, t] of teams) {
-      const fav = s.favTeams.includes(key);
+      const fav = favTeams.includes(key);
       out.push({
         key: 'team:' + key, kind: 'team', title: `${fav ? '★ ' : ''}${t.name}`, sub: `${t.league.toUpperCase()} · ${fav ? 'Remove from' : 'Add to'} favorite teams`,
-        run: () => s.update((st) => ({ favTeams: fav ? st.favTeams.filter((x) => x !== key) : [...st.favTeams, key] })),
+        run: () => update((st) => ({ favTeams: fav ? st.favTeams.filter((x) => x !== key) : [...st.favTeams, key] })),
       });
     }
     const now = Date.now();
     let n = 0;
-    for (const p of s.programs) {
+    for (const p of programs) {
       if (p.end < now || !p.title.toLowerCase().includes(needle)) continue;
-      const ch = s.channels.find((c) => c.id === p.channelId);
+      const ch = channels.find((c) => c.id === p.channelId);
       out.push({
         key: p.id, kind: 'program', title: p.title, sub: `${ch?.name ?? ''} · ${p.start <= now ? 'On now' : `${fmtDay(p.start)} ${fmtTime(p.start)}`}`,
-        run: () => { if (p.start <= now && ch) { s.tune(ch.id); navigate('watch'); } else navigate('guide', String(p.start)); },
+        run: () => { if (p.start <= now && ch) { tune(ch.id); navigate('watch'); } else navigate('guide', String(p.start)); },
       });
       if (++n > 15) break;
     }
     return out.slice(0, 40);
-  }, [q, s]);
+  }, [q, ordered, channels, favorites, games, overrides, favTeams, programs]);
 
   useEffect(() => setSel(0), [q]);
   useEffect(() => {

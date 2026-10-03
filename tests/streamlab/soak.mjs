@@ -28,7 +28,9 @@ let ok = true;
 
 // 1) Sustained playback of the hardest stream (MPEG-2 1080i + AC-3 → full re-encode).
 await page.evaluate(() => { location.hash = '#/watch'; });
-await page.waitForTimeout(1000);
+await page.waitForSelector('.chanBar input');
+await page.fill('.chanBar input', ''); // clear any filter left by the format check
+await page.waitForTimeout(500);
 await page.evaluate(() => {
   [...document.querySelectorAll('.channels > button')].find((x) => x.textContent.includes('TS MPEG-2 1080i')).click();
 });
@@ -65,18 +67,13 @@ if (after !== 0) ok = false;
 // 3) Multiview with four decoded channels.
 await page.evaluate(() => { location.hash = '#/multiview'; });
 await page.waitForTimeout(1500);
-await page.evaluate(() => {
-  const want = ['TS MPEG-2 1080i', 'TS MPEG-2 + MP2', 'TS H.264 + AC-3', 'TS H.264 + E-AC-3'];
-  const sels = [...document.querySelectorAll('.mvEmpty select')];
-  want.forEach((w, i) => {
-    const sel = sels[i];
-    if (!sel) return;
-    const opt = [...sel.options].find((o) => o.textContent.includes(w));
-    if (!opt) return;
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, opt.value);
-    sel.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-});
+for (const [i, want] of ['TS MPEG-2 1080i', 'TS MPEG-2 + MP2', 'TS H.264 + AC-3', 'TS H.264 + E-AC-3'].entries()) {
+  const tile = page.locator('.mvTile').nth(i);
+  if (!(await tile.locator('.pickerBtn').count())) await tile.locator('.mvBar button[title="Clear"]').click();
+  await tile.locator('.pickerBtn').click();
+  await tile.locator('.pickerPop input').fill(want);
+  await tile.locator('.pickerList button', { hasText: want }).first().click();
+}
 await page.waitForTimeout(30000);
 const t1 = await page.evaluate(() => [...document.querySelectorAll('.mvTile video')].map((v) => v.currentTime));
 await page.waitForTimeout(15000);

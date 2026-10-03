@@ -106,20 +106,32 @@ export function applyRules(
   ctx: { games: SportEvent[]; programs: Program[]; from: number; to: number },
 ): ScheduleEntry[] {
   const out: ScheduleEntry[] = [];
+  const ids = new Set<string>();
+  /** title rules: one entry per (title, start) even when several channels air it. */
+  const titleSlots = new Set<string>();
+  const push = (e: ScheduleEntry) => {
+    if (ids.has(e.id)) return;
+    ids.add(e.id);
+    out.push(e);
+  };
   for (const r of rules) {
     if (!r.enabled) continue;
     if (r.kind === 'team') {
       const [league, abbr] = r.match.split(':');
       for (const g of ctx.games) {
         if (g.league !== league || g.start < ctx.from || g.start >= ctx.to || g.state === 'post') continue;
-        if (g.home.abbr === abbr || g.away.abbr === abbr) out.push(entryFromGame(g, r.id, r.reminderMin));
+        if (g.home.abbr === abbr || g.away.abbr === abbr) push(entryFromGame(g, r.id, r.reminderMin));
       }
     } else if (r.kind === 'title') {
       const needle = r.match.toLowerCase();
       if (!needle) continue;
       for (const p of ctx.programs) {
         if (p.start < ctx.from || p.start >= ctx.to) continue;
-        if (p.title.toLowerCase().includes(needle)) out.push(entryFromProgram(p, r.id, r.reminderMin));
+        if (!p.title.toLowerCase().includes(needle)) continue;
+        const slot = `${p.title.toLowerCase()}|${p.start}`;
+        if (titleSlots.has(slot)) continue;
+        titleSlots.add(slot);
+        push(entryFromProgram(p, r.id, r.reminderMin));
       }
     } else if (r.kind === 'block' && r.startMin != null && r.endMin != null) {
       for (let day = startOfDay(ctx.from); day < ctx.to; day += 24 * HOUR) {
@@ -130,7 +142,7 @@ export function applyRules(
         const start = d0 + r.startMin * MIN;
         const end = d0 + (r.endMin > r.startMin ? r.endMin : r.endMin + 24 * 60) * MIN;
         if (end <= ctx.from || start >= ctx.to) continue;
-        out.push({ id: `rule:${r.id}:${d0}`, title: r.match || 'Reserved', start, end, ruleId: r.id, reminderMin: r.reminderMin, color: 'reserved' });
+        push({ id: `rule:${r.id}:${d0}`, title: r.match || 'Reserved', start, end, ruleId: r.id, reminderMin: r.reminderMin, color: 'reserved' });
       }
     }
   }

@@ -12,12 +12,25 @@ export function navigate(route: Route, param?: string) {
   location.hash = `#/${route}${param ? '/' + encodeURIComponent(param) : ''}`;
 }
 
+/** Replace the current route without a history entry (e.g. to drop a one-shot param). */
+export function replaceRoute(route: Route, param?: string) {
+  history.replaceState(history.state, '', `#/${route}${param ? '/' + encodeURIComponent(param) : ''}`);
+  window.dispatchEvent(new Event('dial:route'));
+}
+
 export function useRoute() {
   const [r, setR] = useState(parse);
   useEffect(() => {
-    const on = () => setR(parse());
+    const on = () => setR((prev) => {
+      const next = parse();
+      return next.route === prev.route && next.param === prev.param ? prev : next;
+    });
     window.addEventListener('hashchange', on);
-    return () => window.removeEventListener('hashchange', on);
+    window.addEventListener('dial:route', on);
+    return () => {
+      window.removeEventListener('hashchange', on);
+      window.removeEventListener('dial:route', on);
+    };
   }, []);
   return r;
 }

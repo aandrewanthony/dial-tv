@@ -29,14 +29,16 @@ jobs:
         timeout-minutes: 5
         run: |
           set -e
-          for APP in "release/mac-arm64/Dial TV.app" "release/mac/Dial TV.app"; do
-            echo "== $APP"
+          check() {
+            APP="$1"; ARCH="$2"; echo "== $APP (expect $ARCH)"
             codesign --verify --deep --strict --verbose=2 "$APP"
             FF="$APP/Contents/Resources/ffmpeg/ffmpeg"
             codesign --verify --verbose=2 "$FF"
-            lipo -archs "$APP/Contents/MacOS/Dial TV"
-            lipo -archs "$FF"
-          done
+            [ "$(lipo -archs "$APP/Contents/MacOS/Dial TV")" = "$ARCH" ] || { echo "app arch wrong: $(lipo -archs "$APP/Contents/MacOS/Dial TV")"; exit 1; }
+            [ "$(lipo -archs "$FF")" = "$ARCH" ] || { echo "ffmpeg arch wrong: $(lipo -archs "$FF")"; exit 1; }
+          }
+          check "release/mac-arm64/Dial TV.app" arm64
+          check "release/mac/Dial TV.app" x86_64
           FF="release/mac-arm64/Dial TV.app/Contents/Resources/ffmpeg/ffmpeg"
           "$FF" -hide_banner -version | head -1
           for d in mpeg2video ac3 eac3 mp2 hevc h264; do "$FF" -hide_banner -decoders | grep -qE " $d " && echo "decoder $d OK" || { echo "decoder $d MISSING"; exit 1; }; done
@@ -66,9 +68,14 @@ jobs:
       - run: npm ci
       - uses: actions/download-artifact@v4
         with: { name: Dial-TV-mac, path: dl }
-      - name: Unpack the packaged app (as a user would)
+      - name: Unpack the packaged app (as a user would, including the browser quarantine flag)
         run: |
-          ditto -x -k dl/Dial-TV-*-mac-${{ matrix.zip }}.zip app
+          ZIP="$(ls dl/Dial-TV-*-mac-${{ matrix.zip }}.zip)"
+          xattr -w com.apple.quarantine "0081;$(printf %x $(date +%s));Safari;" "$ZIP"
+          ditto -x -k "$ZIP" app
+          xattr -r "app/Dial TV.app" | head -3 || true
+          # What "Open Anyway" does for the user: clear the quarantine on the app bundle.
+          xattr -dr com.apple.quarantine "app/Dial TV.app"
           ls app
           uname -m
           FF="app/Dial TV.app/Contents/Resources/ffmpeg/ffmpeg"
@@ -94,13 +101,28 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
+      - run: npm test
       - run: npm run dist:win
+      - name: Verify Windows build (exe = stock Electron for Smart App Control, ffmpeg bundled, app launches)
+        shell: pwsh
+        run: |
+          $a = (Get-FileHash "release/win-unpacked/Dial TV.exe").Hash
+          $b = (Get-FileHash "node_modules/electron/dist/electron.exe").Hash
+          if ($a -ne $b) { Write-Error "Dial TV.exe differs from stock electron.exe"; exit 1 }
+          if (-not (Test-Path "release/win-unpacked/resources/ffmpeg/ffmpeg.exe")) { Write-Error "ffmpeg missing"; exit 1 }
+          & "release/win-unpacked/resources/ffmpeg/ffmpeg.exe" -hide_banner -version | Select-Object -First 1
+          $env:DIAL_PROFILE = "ci"
+          $p = Start-Process "release/win-unpacked/Dial TV.exe" -PassThru
+          Start-Sleep 15
+          if ($p.HasExited) { Write-Error "app exited early"; exit 1 }
+          Stop-Process -Id $p.Id -Force
       - uses: actions/upload-artifact@v4
         with:
           name: Dial-TV-windows
           path: |
             release/Dial-TV-Setup-*.exe
             release/Dial-TV-Portable-*.exe
+            release/Dial-TV-*-win.zip
 
   release:
     if: startsWith(github.ref, 'refs/tags/')

@@ -12,7 +12,8 @@ export function normalizeName(s: string): string {
     .replace(/\b(hd|fhd|uhd|4k|sd|east|west|feed)\b/g, ' ')
     .replace(/&/g, 'and')
     .replace(/\+/g, 'plus')
-    .replace(/[^a-z0-9]+/g, ' ')
+    // Keep letters/digits of any script (plus combining marks) so non-Latin names don't collapse to ''.
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -85,25 +86,70 @@ const VARIANT_WORDS = new Set([
   'kids', 'movies', 'family', 'extra', 'alt', 'two', 'max', 'network', 'net', 'radio', 'latino', 'espanol',
 ]);
 
+/** Tokens that mark a regional/foreign feed ("TNT Sports 1 UK", "NBA TV Canada") — never the US network. */
+const REGION_WORDS = new Set([
+  'uk', 'gb', 'canada', 'ca', 'au', 'aus', 'australia', 'nz', 'mx', 'mexico', 'es', 'spain', 'de', 'germany', 'fr', 'france',
+  'italy', 'pt', 'portugal', 'br', 'brasil', 'brazil', 'ar', 'argentina', 'latino', 'latam', 'latin',
+  'international', 'intl', 'europe', 'eu', 'asia', 'africa', 'arabia', 'mena', 'india', 'ireland',
+  'nl', 'pl', 'tr', 'sg', 'hk', 'jp', 'kr', 'caribbean', 'world', 'global',
+]);
+
+/** Over-the-air networks whose local affiliates carry a channel number ("CBS 2 Chicago"). */
+const BROADCAST_HEADS = new Set(['abc', 'cbs', 'nbc', 'fox']);
+
+/** Single words that are aliases but also common words/prefixes ("USA Today", "Golf Digest"): exact match only. */
+const AMBIGUOUS_HEADS = new Set(['usa', 'yes', 'golf', 'sec', 'acc', 'nfl']);
+
 /**
  * Canonical network for a channel name, also recognising local-affiliate style names
  * like "FOX New York" or "CBS 2 Chicago" via a guarded prefix match.
  */
-function channelCanon(name: string): { canon: string; prefix: boolean } {
-  const cn = normalizeName(stripPrefix(name));
+function channelCanon(cn: string): { canon: string; prefix: boolean } {
   const direct = ALIAS_INDEX.get(cn);
   if (direct) return { canon: direct, prefix: false };
   const tokens = cn.split(' ');
+  if (tokens.some((t) => REGION_WORDS.has(t))) return { canon: cn, prefix: false };
   for (let k = Math.min(3, tokens.length - 1); k >= 1; k--) {
-    const head = ALIAS_INDEX.get(tokens.slice(0, k).join(' '));
+    const headStr = tokens.slice(0, k).join(' ');
+    const head = ALIAS_INDEX.get(headStr);
     if (!head) continue;
+    if (AMBIGUOUS_HEADS.has(headStr)) break;
     const next = tokens[k];
-    // "ESPN 2", "FOX News", "FOX Sports 1" are other networks; "FOX New York", "CBS WCBS" are affiliates.
-    if (/^\d+$/.test(next) && tokens.length === k + 1) break;
+    const rest = tokens.slice(k);
+    // "ESPN 2", "FOX News", "FOX Sports 1" are other networks; "FOX New York", "CBS WCBS", "CBS 2 Chicago" are affiliates.
     if (VARIANT_WORDS.has(next)) break;
+    if (rest.some((t) => /\d/.test(t))) {
+      // Only a single affiliate channel number right after an OTA network, followed by a market name.
+      const ok = BROADCAST_HEADS.has(head) && k === 1 && /^\d+$/.test(next) && rest.length > 1 && !rest.slice(1).some((t) => /\d/.test(t));
+      if (!ok) break;
+    }
     return { canon: head, prefix: true };
   }
   return { canon: cn, prefix: false };
+}
+
+interface Prepared {
+  ch: Channel;
+  cn: string;
+  canon: string;
+  prefix: boolean;
+  /** Regional/foreign feed: never a fuzzy match for a US network. */
+  region: boolean;
+}
+
+const prepCache = new WeakMap<Channel[], Prepared[]>();
+
+/** Normalized/canonical names per channel, computed once per channels array. */
+function prepared(channels: Channel[]): Prepared[] {
+  let p = prepCache.get(channels);
+  if (!p) {
+    p = channels.map((ch) => {
+      const cn = normalizeName(stripPrefix(ch.name));
+      return { ch, cn, ...channelCanon(cn), region: cn.split(' ').some((t) => REGION_WORDS.has(t)) };
+    });
+    prepCache.set(channels, p);
+  }
+  return p;
 }
 
 export interface ChannelMatch {
@@ -137,9 +183,9 @@ export function matchNetwork(
     if (ch) return { channel: ch, confidence: 1, reason: 'manual' };
   }
   let best: ChannelMatch | null = null;
-  for (const ch of channels) {
-    const cn = normalizeName(stripPrefix(ch.name));
-    const { canon: chCanon, prefix } = channelCanon(ch.name);
+  if (!canon) return null;
+  const canonRegion = canon.split(' ').some((t) => REGION_WORDS.has(t));
+  for (const { ch, cn, canon: chCanon, prefix, region } of prepared(channels)) {
     let score = 0;
     let reason: ChannelMatch['reason'] = 'fuzzy';
     if (chCanon === canon) {
@@ -147,23 +193,37 @@ export function matchNetwork(
       reason = cn === canon ? 'exact' : 'alias';
     } else {
       // Avoid "espn" matching "espn2" etc: fuzzy requires token overlap, penalize extra tokens.
-      score = tokenSim(cn, canon) * 0.75;
+      score = region && !canonRegion ? 0 : tokenSim(cn, canon) * 0.75;
     }
     if (score > (best?.confidence ?? 0)) best = { channel: ch, confidence: score, reason };
   }
   return best && best.confidence >= 0.5 ? best : null;
 }
 
-/** Best match across all of a game's broadcasters (first listed wins ties). */
+type BroadcastMatch = (ChannelMatch & { network: string }) | null;
+
+const NO_OVERRIDES: Record<string, string> = {};
+/** channels array → overrides object → broadcasts key → result. Arrays/objects are replaced (not mutated) by the store. */
+const broadcastCache = new WeakMap<Channel[], WeakMap<Record<string, string>, Map<string, BroadcastMatch>>>();
+
+/** Best match across all of a game's broadcasters (first listed wins ties). Memoized per (channels, overrides, broadcasts). */
 export function matchBroadcasts(
   broadcasts: string[],
   channels: Channel[],
-  overrides: Record<string, string> = {},
-): (ChannelMatch & { network: string }) | null {
-  let best: (ChannelMatch & { network: string }) | null = null;
+  overrides: Record<string, string> = NO_OVERRIDES,
+): BroadcastMatch {
+  let byOv = broadcastCache.get(channels);
+  if (!byOv) broadcastCache.set(channels, (byOv = new WeakMap()));
+  let memo = byOv.get(overrides);
+  if (!memo) byOv.set(overrides, (memo = new Map()));
+  const key = broadcasts.join('\u0001');
+  if (memo.has(key)) return memo.get(key)!;
+  let best: BroadcastMatch = null;
   for (const b of broadcasts) {
     const m = matchNetwork(b, channels, overrides);
     if (m && m.confidence > (best?.confidence ?? 0)) best = { ...m, network: b };
   }
+  if (memo.size > 5000) memo.clear();
+  memo.set(key, best);
   return best;
 }

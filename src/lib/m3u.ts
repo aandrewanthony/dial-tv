@@ -1,5 +1,5 @@
 import type { Channel } from '../types';
-import { safeImageUrl, safeUrl } from './url';
+import { cleanHeaderValue, safeImageUrl, safeStreamUrl, safeUrl } from './url';
 
 export interface M3UParseResult {
   channels: Channel[];
@@ -31,6 +31,59 @@ function splitTitle(info: string): [string, string] {
   return [info, ''];
 }
 
+/** decodeURIComponent that never throws (bad % escapes are kept as written). */
+export function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
+/** Parse Kodi-style "Name=value&Name2=value2" header options (values URL-encoded, may contain '='). */
+export function parseHeaderPairs(s: string): [string, string][] {
+  const out: [string, string][] = [];
+  for (const kv of s.split('&')) {
+    const eq = kv.indexOf('=');
+    if (eq <= 0) continue;
+    out.push([safeDecode(kv.slice(0, eq)).trim(), safeDecode(kv.slice(eq + 1))]);
+  }
+  return out;
+}
+
+const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$/;
+
+/** Request options collected for the next playlist entry. */
+class HttpOpts {
+  userAgent?: string;
+  referrer?: string;
+  headers: Record<string, string> = {};
+  set(name: string, value: string) {
+    const v = cleanHeaderValue(value);
+    const n = name.trim();
+    if (!v || !HEADER_NAME.test(n)) return;
+    const lower = n.toLowerCase();
+    if (lower === 'user-agent') this.userAgent = v;
+    else if (lower === 'referer' || lower === 'referrer') this.referrer = v;
+    else {
+      for (const k of Object.keys(this.headers)) if (k.toLowerCase() === lower) delete this.headers[k];
+      this.headers[n] = v;
+    }
+  }
+}
+
+// #EXTVLCOPT / EXTINF attribute names → HTTP header names.
+const VLC_OPTS: Record<string, string> = {
+  'http-user-agent': 'User-Agent',
+  'user-agent': 'User-Agent',
+  'http-referrer': 'Referer',
+  'http-referer': 'Referer',
+  referrer: 'Referer',
+  referer: 'Referer',
+  'http-origin': 'Origin',
+  'http-cookie': 'Cookie',
+};
+
 function markFor(name: string) {
   const bare = name.replace(/^\s*(\[[^\]]+\]|[A-Z]{2,3}\s*[:|])\s*/i, '');
   const words = bare.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
@@ -46,7 +99,7 @@ export function parseM3U(text: string, sourceId = 'import', numberStart = 500): 
 
   let pending: { attrs: Record<string, string>; name: string; line: number } | null = null;
   let group: string | undefined;
-  let opts: { userAgent?: string; referrer?: string } = {};
+  let opts = new HttpOpts();
   const seen = new Set<string>();
 
   for (let i = 0; i < lines.length; i++) {
@@ -70,10 +123,29 @@ export function parseM3U(text: string, sourceId = 'import', numberStart = 500): 
       continue;
     }
     if (line.startsWith('#EXTVLCOPT:')) {
-      const [k, ...v] = line.slice(11).split('=');
-      const val = v.join('=').trim();
-      if (/http-user-agent/i.test(k)) opts.userAgent = val;
-      if (/http-referr?er/i.test(k)) opts.referrer = val;
+      const body = line.slice(11);
+      const eq = body.indexOf('=');
+      const header = eq > 0 ? VLC_OPTS[body.slice(0, eq).trim().toLowerCase()] : undefined;
+      if (header) opts.set(header, body.slice(eq + 1));
+      continue;
+    }
+    if (line.startsWith('#EXTHTTP:')) {
+      // #EXTHTTP:{"User-Agent":"...","cookie":"..."}
+      try {
+        const json: unknown = JSON.parse(line.slice(9));
+        if (json && typeof json === 'object') for (const [k, v] of Object.entries(json)) if (typeof v === 'string') opts.set(k, v);
+      } catch {
+        /* malformed: ignore */
+      }
+      continue;
+    }
+    if (line.startsWith('#KODIPROP:')) {
+      // #KODIPROP:inputstream.adaptive.stream_headers=User-Agent=x&Referer=y
+      const body = line.slice(10);
+      const eq = body.indexOf('=');
+      if (eq > 0 && /^inputstream\.adaptive\.(stream|manifest|common)_headers$/i.test(body.slice(0, eq).trim())) {
+        for (const [k, v] of parseHeaderPairs(body.slice(eq + 1))) opts.set(k, v);
+      }
       continue;
     }
     if (line.startsWith('#')) continue;
@@ -83,24 +155,23 @@ export function parseM3U(text: string, sourceId = 'import', numberStart = 500): 
       skipped.push({ line: i + 1, reason: 'URL without EXTINF' });
       continue;
     }
-    // Some providers append |User-Agent=...&Referer=... to the URL (Kodi style).
-    const [rawUrl, pipeOpts] = line.split('|');
-    if (pipeOpts) {
-      for (const kv of pipeOpts.split('&')) {
-        const [k, v] = kv.split('=');
-        if (/user-agent/i.test(k)) opts.userAgent = decodeURIComponent(v ?? '');
-        if (/referr?er/i.test(k)) opts.referrer = decodeURIComponent(v ?? '');
-      }
-    }
-    const url = safeUrl(rawUrl);
+    // Some providers append |User-Agent=...&Referer=...&Origin=... to the URL (Kodi style).
+    const pipe = line.indexOf('|');
+    const rawUrl = pipe >= 0 ? line.slice(0, pipe) : line;
+    if (pipe >= 0) for (const [k, v] of parseHeaderPairs(line.slice(pipe + 1))) opts.set(k, v);
+    const url = safeStreamUrl(rawUrl);
     if (!url) {
       skipped.push({ line: i + 1, reason: 'Invalid or unsupported URL' });
       pending = null;
-      opts = {};
+      opts = new HttpOpts();
       continue;
     }
 
     const a = pending.attrs;
+    // EXTINF attributes are the weakest source: only fill what directives/pipe options didn't set.
+    const fromAttrs = new HttpOpts();
+    for (const [k, h] of Object.entries(VLC_OPTS)) if (a[k]) fromAttrs.set(h, a[k]);
+    const headers = { ...fromAttrs.headers, ...opts.headers };
     const name = (pending.name || a['tvg-name'] || `Channel ${channels.length + 1}`).slice(0, 120);
     const chno = parseInt(a['tvg-chno'] ?? a['channel-number'] ?? '', 10);
     let id = `${sourceId}:${a['tvg-id'] || name}`.toLowerCase();
@@ -117,11 +188,12 @@ export function parseM3U(text: string, sourceId = 'import', numberStart = 500): 
       url,
       tvgId: a['tvg-id'] || undefined,
       sourceId,
-      userAgent: opts.userAgent || a['user-agent'] || undefined,
-      referrer: opts.referrer || undefined,
+      userAgent: opts.userAgent || fromAttrs.userAgent || undefined,
+      referrer: opts.referrer || fromAttrs.referrer || undefined,
+      ...(Object.keys(headers).length ? { headers } : {}),
     });
     pending = null;
-    opts = {};
+    opts = new HttpOpts();
   }
   if (pending) skipped.push({ line: pending.line, reason: 'EXTINF without URL' });
 

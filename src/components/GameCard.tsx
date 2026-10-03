@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { CalendarPlus, Check, Eye, Flame, Play, Star, Tv } from 'lucide-react';
 import type { SportEvent } from '../types';
 import { useApp, showScore } from '../store/app';
@@ -11,27 +12,37 @@ import { navigate } from '../app/router';
 export function useGameChannel(g: SportEvent) {
   const channels = useApp((s) => s.channels);
   const overrides = useApp((s) => s.networkOverrides);
-  return matchBroadcasts(g.broadcasts, channels, overrides);
+  return useMemo(() => matchBroadcasts(g.broadcasts, channels, overrides), [g.broadcasts, channels, overrides]);
 }
 
 export function GameCard({ g, stakes, compact }: { g: SportEvent; stakes?: GameStakes; compact?: boolean }) {
-  const app = useApp();
+  // Narrow selectors: cards must not re-render on unrelated store updates.
   const match = useGameChannel(g);
-  const visible = showScore(app, g.id);
+  const visible = useApp((s) => showScore(s, g.id));
+  const scheduled = useApp((s) => s.schedule.some((e) => e.eventId === g.id));
+  const favHome = useApp((s) => s.favTeams.includes(`${g.league}:${g.home.abbr}`));
+  const favAway = useApp((s) => s.favTeams.includes(`${g.league}:${g.away.abbr}`));
+  const update = useApp((s) => s.update);
   const clutch = clutchInfo(g);
-  const scheduled = app.schedule.some((e) => e.eventId === g.id);
-  const favHome = app.favTeams.includes(`${g.league}:${g.home.abbr}`);
-  const favAway = app.favTeams.includes(`${g.league}:${g.away.abbr}`);
   const possession = g.situation?.possessionTeamId;
 
   const watch = () => {
     if (!match) return;
-    app.tune(match.channel.id);
+    useApp.getState().tune(match.channel.id);
     navigate('watch');
   };
   const toggleSchedule = () => {
-    const e = entryFromGame(g, undefined, 10);
-    app.update((s) => ({ schedule: scheduled ? s.schedule.filter((x) => x.eventId !== g.id) : [...s.schedule, e] }));
+    if (scheduled) {
+      // Rule-generated entries are remembered as dismissed so rules don't re-add them.
+      update((s) => {
+        const gone = s.schedule.filter((x) => x.eventId === g.id);
+        const ruled = gone.filter((x) => x.ruleId).map((x) => x.id);
+        return { schedule: s.schedule.filter((x) => x.eventId !== g.id), dismissed: ruled.length ? [...s.dismissed, ...ruled] : s.dismissed };
+      });
+    } else {
+      const e = entryFromGame(g, undefined, 10);
+      update((s) => ({ schedule: [...s.schedule, e] }));
+    }
   };
 
   const row = (side: 'away' | 'home') => {
@@ -89,7 +100,7 @@ export function GameCard({ g, stakes, compact }: { g: SportEvent; stakes?: GameS
       <div className="gcFoot">
         <span className="net" title={g.broadcasts.join(', ')}><Tv />{g.broadcasts[0] ?? 'TBD'}</span>
         {!visible && g.state !== 'pre' && (
-          <button className="ghost" onClick={() => app.update((s) => ({ settings: { ...s.settings, revealed: [...s.settings.revealed, g.id] } }))}><Eye /> Reveal</button>
+          <button className="ghost" onClick={() => update((s) => ({ settings: { ...s.settings, revealed: [...s.settings.revealed, g.id] } }))}><Eye /> Reveal</button>
         )}
         <button className="ghost" onClick={toggleSchedule} title={scheduled ? 'Remove from schedule' : 'Add to schedule'}>{scheduled ? <Check /> : <CalendarPlus />}</button>
         {g.state !== 'post' && (
@@ -106,8 +117,8 @@ export function GameCard({ g, stakes, compact }: { g: SportEvent; stakes?: GameS
 
 /** Tiny score bug overlaid on the player when the tuned channel carries a live game. */
 export function ScoreBug({ g }: { g: SportEvent }) {
-  const app = useApp();
-  if (!showScore(app, g.id)) return <div className="scoreBug"><span>{g.away.abbr} @ {g.home.abbr}</span><em>Spoiler shield on</em></div>;
+  const visible = useApp((s) => showScore(s, g.id));
+  if (!visible) return <div className="scoreBug"><span>{g.away.abbr} @ {g.home.abbr}</span><em>Spoiler shield on</em></div>;
   return (
     <div className="scoreBug">
       <span style={{ borderColor: g.away.color }}>{g.away.abbr} <b>{g.awayScore}</b></span>

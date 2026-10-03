@@ -8,7 +8,7 @@ import { parseM3U } from '../lib/m3u';
 import { fetchText } from '../lib/net';
 import { HOUR } from '../lib/scheduler';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export interface Settings {
   clutchAlerts: boolean;
@@ -57,6 +57,8 @@ export interface PersistedState {
   networkOverrides: Record<string, string>;
   /** playlist channel id → XMLTV channel id */
   epgManual: Record<string, string>;
+  /** Guide URLs auto-discovered from playlists (url-tvg) that the user removed: never re-add them. */
+  dismissedEpgUrls: string[];
   fantasy?: FantasyConfig;
   picks: BetPick[];
   pickPlayers: string[];
@@ -88,6 +90,12 @@ interface RuntimeState {
   searchOpen: boolean;
   unmatchedEpg: { id: string; name: string }[];
   xmltvChannels: { id: string; name: string }[];
+  /**
+   * Set when saved data could not be read or written (IndexedDB failure / storage full).
+   * While set because of a read failure, changes are kept in memory only and NOT saved,
+   * so the real saved data is never overwritten with defaults.
+   */
+  storageError?: string;
 }
 
 export type AppState = PersistedState & RuntimeState & {
@@ -96,7 +104,15 @@ export type AppState = PersistedState & RuntimeState & {
   tune: (id: string) => void;
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: string) => void;
+  /**
+   * Reload all enabled playlists and guides. Concurrent calls coalesce: while a load is
+   * running, a call schedules one follow-up pass and resolves when that pass finishes.
+   */
   loadSources: () => Promise<void>;
+  /** Remove a playlist (and its stored file), then reload. */
+  removePlaylist: (id: string) => Promise<void>;
+  /** Remove a guide source (and its stored file), remember its URL so playlist auto-discovery won't re-add it, then reload. */
+  removeEpgSource: (id: string) => Promise<void>;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -128,6 +144,7 @@ export function defaultPersisted(): PersistedState {
     leagues: ['nfl', 'ncaaf', 'nba', 'mlb', 'nhl'],
     networkOverrides: {},
     epgManual: {},
+    dismissedEpgUrls: [],
     picks: [],
     pickPlayers: ['Me', 'Bro'],
     settings: DEFAULT_SETTINGS,
@@ -158,6 +175,10 @@ export function migrate(raw: unknown): PersistedState {
       prevChannelId: out.prevChannelId?.startsWith('demo:') ? undefined : out.prevChannelId,
     } as PersistedState;
   }
+  if (v < 4 || !Array.isArray(out.dismissedEpgUrls)) {
+    // v3 → v4: remembered dismissals of auto-discovered guides.
+    out = { ...out, dismissedEpgUrls: Array.isArray(s.dismissedEpgUrls) ? s.dismissedEpgUrls : [] };
+  }
   return out;
 }
 
@@ -177,52 +198,55 @@ function legacySchedule(): ScheduleEntry[] {
 
 const PERSIST_KEYS: (keyof PersistedState)[] = Object.keys(defaultPersisted()) as (keyof PersistedState)[];
 
+/** Guide window kept in memory: 12h back, 7 days ahead. */
+export const EPG_BACK = 12 * HOUR;
+export const EPG_AHEAD = 7 * 24 * HOUR;
+
 let toastSeq = 0;
 
-export const useApp = create<AppState>((set, get) => ({
-  ...defaultPersisted(),
-  hydrated: false,
-  channels: [],
-  programs: [],
-  games: {},
-  loadingSources: false,
-  theater: false,
-  multiview: [null, null, null, null],
-  unlocked: false,
-  toasts: [],
-  searchOpen: false,
-  unmatchedEpg: [],
-  xmltvChannels: [],
+/**
+ * Channel numbers must be unique across playlists. Keep the first channel with a number,
+ * move later duplicates to the next free number. Deterministic for the same input order.
+ */
+export function dedupeChannelNumbers(channels: Channel[]): Channel[] {
+  const used = new Set(channels.map((c) => c.number));
+  const seen = new Set<number>();
+  let changed = false;
+  const out = channels.map((c) => {
+    if (!seen.has(c.number)) {
+      seen.add(c.number);
+      return c;
+    }
+    let n = c.number + 1;
+    while (used.has(n)) n++;
+    used.add(n);
+    seen.add(n);
+    changed = true;
+    return { ...c, number: n };
+  });
+  return changed ? out : channels;
+}
 
-  set: (p) => set(p),
-  update: (fn) => set((s) => fn(s)),
+type PlaylistMeta = Pick<PlaylistSource, 'lastLoaded' | 'channelCount' | 'error'>;
+type EpgMeta = Pick<EpgSource, 'lastLoaded' | 'programCount' | 'error'>;
 
-  tune: (id) => {
-    const s = get();
-    if (id === s.currentId) return;
-    set({ currentId: id, prevChannelId: s.currentId ?? s.prevChannelId, lastChannelId: id });
-  },
+/** Merge per-source load results into the CURRENT source list; removed sources are never re-added. */
+function mergeMeta<T extends { id: string }, M>(list: T[], meta: Map<string, M>): T[] {
+  if (!meta.size || !list.some((x) => meta.has(x.id))) return list;
+  return list.map((x) => (meta.has(x.id) ? { ...x, ...meta.get(x.id) } : x));
+}
 
-  toast: (t) => {
-    const id = `t${++toastSeq}`;
-    set((s) => ({ toasts: [...s.toasts.slice(-4), { ...t, id }] }));
-    const ttl = t.ttl ?? (t.kind === 'clutch' || t.kind === 'reminder' ? 20000 : 6000);
-    if (ttl > 0) setTimeout(() => get().dismissToast(id), ttl);
-  },
-  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+let loadInFlight: Promise<void> | null = null;
+let loadDirty = false;
 
-  loadSources: async () => {
-    if (get().loadingSources) return;
-    set({ loadingSources: true });
-    const s = get();
-    const channels: Channel[] = [];
-    const playlists = [...s.playlists];
-    const epgSources = [...s.epgSources];
+export const useApp = create<AppState>((set, get) => {
+  /** One full pass over the sources. All writes merge into current state, never stale snapshots. */
+  async function loadOnce() {
+    const results = new Map<string, Channel[]>();
+    const plMeta = new Map<string, PlaylistMeta>();
     let numberStart = 200;
 
-    for (let i = 0; i < playlists.length; i++) {
-      const src = playlists[i];
-      if (!src.enabled) continue;
+    for (const src of get().playlists.filter((p) => p.enabled)) {
       try {
         let loaded: Channel[] = [];
         let epgUrl: string | undefined;
@@ -234,59 +258,147 @@ export const useApp = create<AppState>((set, get) => ({
           loaded = r.channels;
           epgUrl = r.epgUrl;
         }
-        if (epgUrl && !epgSources.some((e) => e.url === epgUrl)) {
-          epgSources.push({ id: `epg-${src.id}`, name: `${src.name} guide`, kind: 'xmltv-url', url: epgUrl, enabled: true });
-        }
-        channels.push(...loaded);
+        results.set(src.id, loaded);
         numberStart += Math.ceil((loaded.length + 1) / 100) * 100;
-        playlists[i] = { ...src, lastLoaded: Date.now(), channelCount: loaded.length, error: undefined };
+        plMeta.set(src.id, { lastLoaded: Date.now(), channelCount: loaded.length, error: undefined });
+        if (epgUrl) discoverEpg(src, epgUrl);
       } catch (e) {
-        playlists[i] = { ...src, error: (e as Error).message };
+        plMeta.set(src.id, { error: (e as Error).message });
       }
     }
+
+    // Channels from the playlists that are enabled *now*, in the current playlist order.
+    const channelsNow = () =>
+      dedupeChannelNumbers(get().playlists.filter((p) => p.enabled).flatMap((p) => results.get(p.id) ?? []));
+    const mapChannels = channelsNow();
 
     const programs: Program[] = [];
+    const epgMeta = new Map<string, EpgMeta>();
     let unmatched: { id: string; name: string }[] = [];
     let xmltvChannels: { id: string; name: string }[] = [];
-    for (let i = 0; i < epgSources.length; i++) {
-      const src = epgSources[i];
-      if (!src.enabled) continue;
+    for (const src of get().epgSources.filter((e) => e.enabled)) {
       try {
         let loaded: Program[] = [];
-        {
-          const text = src.kind === 'xmltv-file' ? await kv.get<string>(`file:${src.id}`) : await fetchText(src.url!);
-          if (text) {
-            const r = mapXmltvPrograms(text, channels, s.epgManual);
-            loaded = r.programs;
-            unmatched = unmatched.concat(r.unmatched);
-            xmltvChannels = xmltvChannels.concat(r.xmltvChannels);
-          }
+        const text = src.kind === 'xmltv-file' ? await kv.get<string>(`file:${src.id}`) : await fetchText(src.url!);
+        if (text) {
+          const now = Date.now();
+          const r = mapXmltvPrograms(text, mapChannels, get().epgManual, { from: now - EPG_BACK, to: now + EPG_AHEAD });
+          loaded = r.programs;
+          unmatched = unmatched.concat(r.unmatched);
+          xmltvChannels = xmltvChannels.concat(r.xmltvChannels);
         }
-        // Keep a rolling window to bound memory: 12h back, 7 days ahead.
-        const lo = Date.now() - 12 * HOUR;
-        const hi = Date.now() + 7 * 24 * HOUR;
-        loaded = loaded.filter((p) => p.end > lo && p.start < hi);
-        programs.push(...loaded);
-        epgSources[i] = { ...src, lastLoaded: Date.now(), programCount: loaded.length, error: undefined };
+        for (const p of loaded) programs.push(p);
+        epgMeta.set(src.id, { lastLoaded: Date.now(), programCount: loaded.length, error: undefined });
       } catch (e) {
-        epgSources[i] = { ...src, error: (e as Error).message };
+        epgMeta.set(src.id, { error: (e as Error).message });
       }
     }
 
-    const cur = get().currentId;
-    set({
+    // Sources may have been toggled/removed while we were awaiting: only keep data for what is enabled now.
+    const channels = channelsNow();
+    const chIds = new Set(channels.map((c) => c.id));
+    const enabledEpg = new Set(get().epgSources.filter((e) => e.enabled).map((e) => e.id));
+    const keptPrograms = enabledEpg.size ? programs.filter((p) => chIds.has(p.channelId)) : [];
+    set((s) => ({
       channels,
-      programs,
-      playlists,
-      epgSources,
+      programs: keptPrograms,
+      playlists: mergeMeta(s.playlists, plMeta),
+      epgSources: mergeMeta(s.epgSources, epgMeta),
       unmatchedEpg: unmatched,
       xmltvChannels,
-      loadingSources: false,
-      currentId: cur && channels.some((c) => c.id === cur) ? cur : channels.find((c) => c.id === get().lastChannelId)?.id ?? channels[0]?.id,
-    });
+      currentId:
+        s.currentId && chIds.has(s.currentId) ? s.currentId : channels.find((c) => c.id === s.lastChannelId)?.id ?? channels[0]?.id,
+    }));
     void kv.set('cache:channels', channels);
-  },
-}));
+  }
+
+  /** Add (or update by id) the guide a playlist advertises via url-tvg, unless the user dismissed it. */
+  function discoverEpg(src: PlaylistSource, epgUrl: string) {
+    set((s) => {
+      if (!s.playlists.some((p) => p.id === src.id)) return {};
+      if (s.dismissedEpgUrls.includes(epgUrl) || s.epgSources.some((e) => e.url === epgUrl)) return {};
+      const id = `epg-${src.id}`;
+      if (s.epgSources.some((e) => e.id === id)) {
+        return { epgSources: s.epgSources.map((e) => (e.id === id ? { ...e, url: epgUrl, error: undefined } : e)) };
+      }
+      const add: EpgSource = { id, name: `${src.name} guide`, kind: 'xmltv-url', url: epgUrl, enabled: true };
+      return { epgSources: [...s.epgSources, add] };
+    });
+  }
+
+  return {
+    ...defaultPersisted(),
+    hydrated: false,
+    channels: [],
+    programs: [],
+    games: {},
+    loadingSources: false,
+    theater: false,
+    multiview: [null, null, null, null],
+    unlocked: false,
+    toasts: [],
+    searchOpen: false,
+    unmatchedEpg: [],
+    xmltvChannels: [],
+
+    set: (p) => set(p),
+    update: (fn) => set((s) => fn(s)),
+
+    tune: (id) => {
+      const s = get();
+      if (id === s.currentId) return;
+      set({ currentId: id, prevChannelId: s.currentId ?? s.prevChannelId, lastChannelId: id });
+    },
+
+    toast: (t) => {
+      const id = `t${++toastSeq}`;
+      set((s) => ({ toasts: [...s.toasts.slice(-4), { ...t, id }] }));
+      const ttl = t.ttl ?? (t.kind === 'clutch' || t.kind === 'reminder' ? 20000 : 6000);
+      if (ttl > 0) setTimeout(() => get().dismissToast(id), ttl);
+    },
+    dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+    loadSources: () => {
+      if (loadInFlight) {
+        // Coalesce: run one more pass after the current one so changes made meanwhile are picked up.
+        loadDirty = true;
+        return loadInFlight;
+      }
+      set({ loadingSources: true });
+      loadInFlight = (async () => {
+        try {
+          do {
+            loadDirty = false;
+            await loadOnce();
+          } while (loadDirty);
+        } finally {
+          loadInFlight = null;
+          set({ loadingSources: false });
+        }
+      })();
+      return loadInFlight;
+    },
+
+    removePlaylist: async (id) => {
+      set((s) => ({ playlists: s.playlists.filter((p) => p.id !== id) }));
+      await kv.del(`file:${id}`);
+      await get().loadSources();
+    },
+
+    removeEpgSource: async (id) => {
+      set((s) => {
+        const src = s.epgSources.find((e) => e.id === id);
+        const url = src?.kind === 'xmltv-url' ? src.url : undefined;
+        return {
+          epgSources: s.epgSources.filter((e) => e.id !== id),
+          dismissedEpgUrls: url && !s.dismissedEpgUrls.includes(url) ? [...s.dismissedEpgUrls, url] : s.dismissedEpgUrls,
+        };
+      });
+      await kv.del(`file:${id}`);
+      await get().loadSources();
+    },
+  };
+});
 
 let resetting = false;
 
@@ -297,33 +409,85 @@ export async function resetAllData() {
   location.reload();
 }
 
+export const STORAGE_READ_ERROR =
+  'Could not read your saved data. Changes this session will not be saved. Restart the app to try again.';
+export const STORAGE_WRITE_ERROR =
+  'Could not save your changes (storage full or unavailable). They are kept until you close the app.';
+
+let unsubscribeSave: (() => void) | null = null;
+let pagehideFlush: (() => void) | null = null;
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /** Load persisted state, start auto-saving, then load sources. */
 export async function hydrate() {
-  const stored = await kv.get<PersistedState>('state');
+  let stored: PersistedState | undefined;
+  let readFailed = false;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      stored = await kv.get<PersistedState>('state');
+      break;
+    } catch {
+      if (attempt >= 1) {
+        readFailed = true;
+        break;
+      }
+      await delay(250);
+    }
+  }
+  if (!stored && !readFailed) {
+    // Older builds fell back to localStorage when IndexedDB writes failed: adopt that copy once.
+    try {
+      const raw = localStorage.getItem('dial-tv:state');
+      if (raw) stored = JSON.parse(raw) as PersistedState;
+    } catch {
+      /* ignore */
+    }
+  }
   const state = migrate(stored);
-  if (!stored) state.schedule = legacySchedule();
-  const cachedChannels = await kv.get<Channel[]>('cache:channels');
+  if (!stored && !readFailed) state.schedule = legacySchedule();
+  const cachedChannels = await kv.get<Channel[]>('cache:channels').catch(() => undefined);
   useApp.setState({
     ...state,
     hydrated: true,
     channels: (cachedChannels ?? []).filter((c) => c.sourceId !== 'demo'),
     currentId: state.lastChannelId,
+    storageError: readFailed ? STORAGE_READ_ERROR : undefined,
   });
 
-  // Coalesce bursts of updates into one write per tick, and flush when the page is hidden/closed,
-  // so nothing is lost if the window closes right after an action.
-  let pending = false;
-  const flush = () => {
-    pending = false;
-    if (resetting) return;
-    void kv.set('state', pickPersisted(useApp.getState()));
-  };
-  useApp.subscribe((s, prev) => {
-    if (PERSIST_KEYS.every((k) => s[k] === prev[k]) || pending) return;
-    pending = true;
-    queueMicrotask(flush);
-  });
-  window.addEventListener('pagehide', flush);
+  unsubscribeSave?.();
+  unsubscribeSave = null;
+  if (pagehideFlush) window.removeEventListener('pagehide', pagehideFlush);
+  pagehideFlush = null;
+
+  if (readFailed) {
+    // Never auto-save over data we failed to read: run in memory only.
+    useApp.getState().toast({ kind: 'error', title: 'Saved data unavailable', body: STORAGE_READ_ERROR, ttl: 0 });
+  } else {
+    // Coalesce bursts of updates into one write per tick, and flush when the page is hidden/closed,
+    // so nothing is lost if the window closes right after an action.
+    let pending = false;
+    const flush = () => {
+      pending = false;
+      if (resetting) return;
+      void kv.put('state', pickPersisted(useApp.getState())).then(
+        () => {
+          if (useApp.getState().storageError === STORAGE_WRITE_ERROR) useApp.setState({ storageError: undefined });
+        },
+        () => {
+          // No localStorage fallback: a stale copy there would shadow IndexedDB later.
+          if (useApp.getState().storageError !== STORAGE_WRITE_ERROR) useApp.setState({ storageError: STORAGE_WRITE_ERROR });
+        },
+      );
+    };
+    unsubscribeSave = useApp.subscribe((s, prev) => {
+      if (PERSIST_KEYS.every((k) => s[k] === prev[k]) || pending) return;
+      pending = true;
+      queueMicrotask(flush);
+    });
+    pagehideFlush = flush;
+    window.addEventListener('pagehide', flush);
+  }
 
   await useApp.getState().loadSources();
 }
@@ -338,14 +502,77 @@ export function pickPersisted(s: AppState): PersistedState {
 
 export function orderedChannels(s: Pick<AppState, 'channels' | 'channelOrder' | 'hidden'>, includeHidden = false) {
   const idx = new Map(s.channelOrder.map((id, i) => [id, i]));
+  const hidden = includeHidden ? null : new Set(s.hidden);
   return s.channels
-    .filter((c) => includeHidden || !s.hidden.includes(c.id))
+    .filter((c) => !hidden || !hidden.has(c.id))
     .sort((a, b) => (idx.get(a.id) ?? 1e6 + a.number) - (idx.get(b.id) ?? 1e6 + b.number));
 }
 
-export function nowPlaying(programs: Program[], channelId: string, at = Date.now()) {
-  return programs.find((p) => p.channelId === channelId && p.start <= at && p.end > at);
+const programIndex = new WeakMap<Program[], Map<string, Program[]>>();
+
+/**
+ * Programs grouped by channel id, each list sorted by start. Memoized per programs array
+ * (the store replaces the array on every load), so it is cheap to call during render.
+ */
+export function programsByChannel(programs: Program[]): Map<string, Program[]> {
+  let m = programIndex.get(programs);
+  if (!m) {
+    m = new Map();
+    for (const p of programs) {
+      const arr = m.get(p.channelId);
+      if (arr) arr.push(p);
+      else m.set(p.channelId, [p]);
+    }
+    for (const arr of m.values()) arr.sort((a, b) => a.start - b.start);
+    programIndex.set(programs, m);
+  }
+  return m;
 }
+
+/** Index of the last program with start <= at (binary search), or -1. */
+function lastStartingAtOrBefore(arr: Program[], at: number) {
+  let lo = 0;
+  let hi = arr.length - 1;
+  let ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid].start <= at) {
+      ans = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return ans;
+}
+
+/** Programs of one channel overlapping [from, to), sorted by start. */
+export function programsInRange(programs: Program[], channelId: string, from: number, to: number): Program[] {
+  const arr = programsByChannel(programs).get(channelId);
+  if (!arr) return [];
+  const out: Program[] = [];
+  // Programs are short (< 12h after parsing), so start a little before `from`.
+  let i = lastStartingAtOrBefore(arr, from - 12 * HOUR) + 1;
+  for (; i < arr.length && arr[i].start < to; i++) if (arr[i].end > from) out.push(arr[i]);
+  return out;
+}
+
+export function nowPlaying(programs: Program[], channelId: string, at = Date.now()) {
+  const arr = programsByChannel(programs).get(channelId);
+  if (!arr) return undefined;
+  const last = lastStartingAtOrBefore(arr, at);
+  // Overlaps are rare: check the last few programs that started before `at`.
+  for (let i = last; i >= 0 && i >= last - 3; i--) if (arr[i].end > at) return arr[i];
+  return undefined;
+}
+
+/** The next program to start after `at` on a channel. */
+export function upNext(programs: Program[], channelId: string, at = Date.now()) {
+  const arr = programsByChannel(programs).get(channelId);
+  return arr ? arr[lastStartingAtOrBefore(arr, at) + 1] : undefined;
+}
+
+/** Store selector: the tuned channel object (or undefined). */
+export const selectCurrentChannel = (s: Pick<AppState, 'channels' | 'currentId'>) =>
+  s.currentId ? s.channels.find((c) => c.id === s.currentId) : undefined;
 
 export async function sha256(text: string) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));

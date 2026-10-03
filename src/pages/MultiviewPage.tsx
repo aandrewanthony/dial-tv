@@ -1,31 +1,82 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Flame, Maximize2, Volume2, X } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import Player from '../player/Player';
 import { orderedChannels, useApp } from '../store/app';
+import type { Channel, SportEvent } from '../types';
 import { ScoreBug } from '../components/GameCard';
+import { ChannelPicker, type PickOption } from '../components/ChannelPicker';
+import { LockedScreen, useLockedOut } from '../components/ui';
 import { matchBroadcasts } from '../lib/channelMatch';
 import { useRankedGames } from '../hooks/useSports';
 import { navigate } from '../app/router';
 
 /** 2×2 multiview. Audio follows the focused tile; browsers may struggle beyond 4 HD streams. */
 export default function MultiviewPage() {
-  const s = useApp();
+  const { channels, channelOrder, hidden } = useApp(useShallow((s) => ({ channels: s.channels, channelOrder: s.channelOrder, hidden: s.hidden })));
+  const overrides = useApp((s) => s.networkOverrides);
+  const games = useApp((s) => s.games);
+  const multiview = useApp((s) => s.multiview);
   const [focus, setFocus] = useState(0);
   const [layout, setLayout] = useState<'2x2' | '1+3'>('2x2');
-  const list = useMemo(() => orderedChannels(s), [s.channels, s.channelOrder, s.hidden]); // eslint-disable-line react-hooks/exhaustive-deps
+  const list = useMemo(() => orderedChannels({ channels, channelOrder, hidden }), [channels, channelOrder, hidden]);
   const live = useRankedGames((g) => g.state === 'in');
 
   const setSlot = (i: number, id: string | null) => {
-    const next = [...s.multiview];
+    const next = [...useApp.getState().multiview];
     next[i] = id;
-    s.set({ multiview: next });
+    useApp.setState({ multiview: next });
   };
+
+  // Channel number entry / last channel while on Multiview: fill the first empty tile, else the focused one.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      const mv = useApp.getState().multiview;
+      const empty = mv.indexOf(null);
+      const i = empty >= 0 ? empty : focus;
+      setSlot(i, id);
+      setFocus(i);
+    };
+    window.addEventListener('dial:mvtune', on);
+    return () => window.removeEventListener('dial:mvtune', on);
+  }, [focus]);
+
+  // Broadcast matching once per data change (not per tile per render).
+  const liveMatches = useMemo(() => {
+    const out: { g: SportEvent; ch: Channel }[] = [];
+    for (const r of live) {
+      const m = matchBroadcasts(r.g.broadcasts, channels, overrides);
+      if (m) out.push({ g: r.g, ch: m.channel });
+    }
+    return out;
+  }, [games, channels, overrides]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gameByChannel = useMemo(() => {
+    const m = new Map<string, SportEvent>();
+    for (const x of liveMatches) if (!m.has(x.ch.id)) m.set(x.ch.id, x.g);
+    return m;
+  }, [liveMatches]);
+
+  // Live-game shortcuts first, then every channel; option ids map back to channel ids.
+  const { options, optToChannel } = useMemo(() => {
+    const opts: PickOption[] = [];
+    const map = new Map<string, string>();
+    for (const { g, ch } of liveMatches) {
+      const id = `live:${g.id}`;
+      opts.push({ id, label: `🔴 ${g.away.abbr} @ ${g.home.abbr} — ${ch.name}` });
+      map.set(id, ch.id);
+    }
+    for (const c of list) {
+      opts.push({ id: c.id, label: `${c.number} · ${c.name}` });
+      map.set(c.id, c.id);
+    }
+    return { options: opts, optToChannel: map };
+  }, [liveMatches, list]);
 
   const autoFill = () => {
     const ids: (string | null)[] = [];
-    for (const r of live) {
-      const m = matchBroadcasts(r.g.broadcasts, s.channels, s.networkOverrides);
-      if (m && !ids.includes(m.channel.id)) ids.push(m.channel.id);
+    for (const { ch } of liveMatches) {
+      if (!ids.includes(ch.id)) ids.push(ch.id);
       if (ids.length === 4) break;
     }
     for (const c of list) {
@@ -33,12 +84,9 @@ export default function MultiviewPage() {
       if (!ids.includes(c.id)) ids.push(c.id);
     }
     while (ids.length < 4) ids.push(null);
-    s.set({ multiview: ids });
+    useApp.setState({ multiview: ids });
     setFocus(0);
   };
-
-  const gameOn = (chId: string) =>
-    Object.values(s.games).find((g) => g.state === 'in' && matchBroadcasts(g.broadcasts, s.channels, s.networkOverrides)?.channel.id === chId);
 
   return (
     <div className="multiview">
@@ -53,31 +101,15 @@ export default function MultiviewPage() {
         </div>
       </div>
       <div className={`mvGrid l${layout.replace('+', 'p')}`}>
-        {s.multiview.map((id, i) => {
-          const ch = id ? s.channels.find((c) => c.id === id) : undefined;
-          const g = ch ? gameOn(ch.id) : undefined;
+        {multiview.map((id, i) => {
+          const ch = id ? channels.find((c) => c.id === id) : undefined;
           return (
             <div key={i} className={`mvTile ${focus === i ? 'focus' : ''}`} onClick={() => setFocus(i)}>
               {ch ? (
-                <>
-                  <Player channel={ch} compact muted={focus !== i} overlay={g && <ScoreBug g={g} />} />
-                  <div className="mvBar" onClick={(e) => e.stopPropagation()}>
-                    {focus === i && <Volume2 className="aud" />}
-                    <b>{ch.name}</b>
-                    <button className="icon" title="Watch full" onClick={() => { s.tune(ch.id); navigate('watch'); }}><Maximize2 /></button>
-                    <button className="icon" title="Clear" onClick={() => setSlot(i, null)}><X /></button>
-                  </div>
-                </>
+                <MvTile ch={ch} g={gameByChannel.get(ch.id)} focused={focus === i} onClear={() => setSlot(i, null)} />
               ) : (
                 <div className="mvEmpty" onClick={(e) => e.stopPropagation()}>
-                  <select className="field" value="" onChange={(e) => setSlot(i, e.target.value)}>
-                    <option value="">Choose channel…</option>
-                    {live.map((r) => {
-                      const m = matchBroadcasts(r.g.broadcasts, s.channels, s.networkOverrides);
-                      return m ? <option key={r.g.id} value={m.channel.id}>🔴 {r.g.away.abbr} @ {r.g.home.abbr} — {m.channel.name}</option> : null;
-                    })}
-                    {list.map((c) => <option key={c.id} value={c.id}>{c.number} · {c.name}</option>)}
-                  </select>
+                  <ChannelPicker options={options} placeholder="Choose channel…" onChange={(o) => o && setSlot(i, optToChannel.get(o) ?? o)} />
                 </div>
               )}
             </div>
@@ -85,5 +117,20 @@ export default function MultiviewPage() {
         })}
       </div>
     </div>
+  );
+}
+
+function MvTile({ ch, g, focused, onClear }: { ch: Channel; g?: SportEvent; focused: boolean; onClear: () => void }) {
+  const lockedOut = useLockedOut(ch.id);
+  return (
+    <>
+      {lockedOut ? <LockedScreen /> : <Player channel={ch} compact muted={!focused} overlay={g && <ScoreBug g={g} />} />}
+      <div className="mvBar" onClick={(e) => e.stopPropagation()}>
+        {focused && <Volume2 className="aud" />}
+        <b>{ch.name}</b>
+        <button className="icon" title="Watch full" onClick={() => { useApp.getState().tune(ch.id); navigate('watch'); }}><Maximize2 /></button>
+        <button className="icon" title="Clear" onClick={onClear}><X /></button>
+      </div>
+    </>
   );
 }

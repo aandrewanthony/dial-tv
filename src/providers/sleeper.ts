@@ -62,7 +62,7 @@ export const sleeperProvider: FantasyProvider = {
   },
   async players() {
     // ~5 MB payload; Sleeper asks clients to fetch it at most once per day.
-    const cached = await kv.get<{ at: number; players: Record<string, FantasyPlayer> }>(PLAYERS_KEY);
+    const cached = await kv.get<{ at: number; players: Record<string, FantasyPlayer> }>(PLAYERS_KEY).catch(() => undefined);
     if (cached && Date.now() - cached.at < DAY) return cached.players;
     try {
       const raw = await get<Record<string, any>>('/players/nfl');

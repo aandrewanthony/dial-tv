@@ -9,7 +9,7 @@ export function engineFromExtension(url: string): Engine | null {
   const path = url.split(/[?#]/)[0].toLowerCase();
   if (/\.m3u8?$/.test(path)) return 'hls';
   if (/\.(ts|flv|mts|m2ts)$/.test(path)) return 'mpegts';
-  if (/\.(mp4|webm|mov|m4v|mkv)$/.test(path)) return 'native';
+  if (/\.(mp4|webm|mov|m4v|mkv|mp3|m4a|aac|ogg|oga|opus|wav)$/.test(path)) return 'native';
   return null;
 }
 
@@ -28,17 +28,29 @@ export function engineFromBytes(bytes: Uint8Array, contentType = ''): Engine | n
   return null;
 }
 
-/** Extension first; otherwise read the first ~1 KB of the response. Falls back to HLS. */
-export async function detectEngine(url: string, signal?: AbortSignal): Promise<Engine> {
+export interface Sniff {
+  engine: Engine;
+  /** HTTP status when the server refused the stream (>= 400). */
+  status?: number;
+}
+
+/**
+ * Extension first (no request at all); otherwise read the first ~1 KB of the response.
+ * The sniff connection is fully closed before this resolves, so the real player never
+ * shares the provider's connection limit with it. Falls back to HLS.
+ */
+export async function sniffStream(url: string, signal?: AbortSignal): Promise<Sniff> {
   const byExt = engineFromExtension(url);
-  if (byExt) return byExt;
+  if (byExt) return { engine: byExt };
   const ctrl = new AbortController();
   const abort = () => ctrl.abort();
   signal?.addEventListener('abort', abort);
   const timer = setTimeout(abort, 6000);
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
     const res = await fetch(url, { signal: ctrl.signal });
-    const reader = res.body?.getReader();
+    if (res.status >= 400) return { engine: 'hls', status: res.status };
+    reader = res.body?.getReader();
     let buf = new Uint8Array(0);
     while (reader && buf.length < 1024) {
       const { value, done } = await reader.read();
@@ -48,12 +60,18 @@ export async function detectEngine(url: string, signal?: AbortSignal): Promise<E
       next.set(value, buf.length);
       buf = next;
     }
-    return engineFromBytes(buf, res.headers.get('content-type') ?? '') ?? 'hls';
+    return { engine: engineFromBytes(buf, res.headers.get('content-type') ?? '') ?? 'hls' };
   } catch {
-    return 'hls'; // blocked (e.g. CORS in a browser) or timed out: let hls.js report the real error
+    return { engine: 'hls' }; // blocked (e.g. CORS in a browser) or timed out: let hls.js report the real error
   } finally {
     clearTimeout(timer);
-    ctrl.abort(); // stop downloading an endless live feed; the real player opens its own connection
+    // Stop downloading an endless live feed and close the socket before the real player connects.
+    ctrl.abort();
+    await reader?.cancel().catch(() => {});
     signal?.removeEventListener('abort', abort);
   }
+}
+
+export async function detectEngine(url: string, signal?: AbortSignal): Promise<Engine> {
+  return (await sniffStream(url, signal)).engine;
 }

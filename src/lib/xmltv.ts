@@ -34,38 +34,66 @@ export function parseXmltvDate(s: string | null | undefined): number | null {
 
 const SPORTS_RE = /\b(sports?|football|basketball|baseball|hockey|soccer|nfl|nba|mlb|nhl|ncaa|golf|tennis|boxing|mma|ufc)\b/i;
 
-export function parseXMLTV(xml: string): XmltvParseResult {
+export interface XmltvWindow {
+  /** Drop programmes that end at or before this instant (epoch ms). */
+  from?: number;
+  /** Drop programmes that start at or after this instant (epoch ms). */
+  to?: number;
+}
+
+/** Open-ended programmes can stretch up to this long (until the next programme). */
+const OPEN_END_MAX = 12 * 3600_000;
+
+export function parseXMLTV(xml: string, window: XmltvWindow = {}): XmltvParseResult {
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
   if (doc.getElementsByTagName('parsererror').length) {
     throw new Error('Invalid XMLTV: document is not well-formed XML');
   }
+  const from = window.from ?? -Infinity;
+  const to = window.to ?? Infinity;
+  const first = (el: Element, tag: string) => el.getElementsByTagName(tag)[0];
   const text = (el: Element | null | undefined) => el?.textContent?.trim() || undefined;
 
   const channels: XmltvChannel[] = [];
-  for (const c of Array.from(doc.getElementsByTagName('channel'))) {
+  const chEls = doc.getElementsByTagName('channel');
+  for (let i = 0; i < chEls.length; i++) {
+    const c = chEls[i];
     const id = c.getAttribute('id');
     if (!id) continue;
-    channels.push({
-      id,
-      names: Array.from(c.getElementsByTagName('display-name')).map((n) => n.textContent?.trim() || '').filter(Boolean),
-      icon: c.getElementsByTagName('icon')[0]?.getAttribute('src') || undefined,
-    });
+    const names: string[] = [];
+    const dn = c.getElementsByTagName('display-name');
+    for (let j = 0; j < dn.length; j++) {
+      const n = dn[j].textContent?.trim();
+      if (n) names.push(n);
+    }
+    channels.push({ id, names, icon: first(c, 'icon')?.getAttribute('src') || undefined });
   }
 
   const programs: XmltvParseResult['programs'] = [];
   const openEnded = new Set<string>();
   let errors = 0;
   let n = 0;
-  for (const p of Array.from(doc.getElementsByTagName('programme'))) {
+  const progEls = doc.getElementsByTagName('programme');
+  for (let i = 0; i < progEls.length; i++) {
+    const p = progEls[i];
     const ch = p.getAttribute('channel');
     const start = parseXmltvDate(p.getAttribute('start'));
-    const stop = parseXmltvDate(p.getAttribute('stop'));
-    const title = text(p.getElementsByTagName('title')[0]);
-    if (!ch || start == null || !title) {
+    if (!ch || start == null) {
       errors++;
       continue;
     }
-    const categories = Array.from(p.getElementsByTagName('category')).map((c) => c.textContent?.trim() || '');
+    const stop = parseXmltvDate(p.getAttribute('stop'));
+    // Window check on the cheap attributes before touching child elements.
+    if (start >= to) continue;
+    if (stop != null ? stop <= from : start + OPEN_END_MAX <= from) continue;
+    const title = text(first(p, 'title'));
+    if (!title) {
+      errors++;
+      continue;
+    }
+    const catEls = p.getElementsByTagName('category');
+    const categories: string[] = [];
+    for (let j = 0; j < catEls.length; j++) categories.push(catEls[j].textContent?.trim() || '');
     const category = categories[0] || 'General';
     const id = `x${n++}:${ch}:${start}`;
     if (stop == null) openEnded.add(id);
@@ -73,8 +101,8 @@ export function parseXMLTV(xml: string): XmltvParseResult {
       id,
       xmltvChannel: ch,
       title,
-      subtitle: text(p.getElementsByTagName('sub-title')[0]),
-      description: text(p.getElementsByTagName('desc')[0]),
+      subtitle: text(first(p, 'sub-title')),
+      description: text(first(p, 'desc')),
       start,
       // Missing stop: runs until the next programme (fixed up below), else 30 minutes.
       end: stop ?? start + 30 * 60000,
@@ -87,17 +115,17 @@ export function parseXMLTV(xml: string): XmltvParseResult {
   // Open-ended programmes run until the next one; overlapping ones are clamped to it.
   const byCh = new Map<string, typeof programs>();
   for (const p of programs) {
-    const arr = byCh.get(p.xmltvChannel) ?? [];
-    arr.push(p);
-    byCh.set(p.xmltvChannel, arr);
+    const arr = byCh.get(p.xmltvChannel);
+    if (arr) arr.push(p);
+    else byCh.set(p.xmltvChannel, [p]);
   }
   for (const arr of byCh.values()) {
     arr.sort((a, b) => a.start - b.start);
     for (let i = 0; i < arr.length - 1; i++) {
       const next = arr[i + 1].start;
-      if (arr[i].end > next || (openEnded.has(arr[i].id) && next - arr[i].start <= 12 * 3600_000)) arr[i].end = next;
+      if (arr[i].end > next || (openEnded.has(arr[i].id) && next - arr[i].start <= OPEN_END_MAX)) arr[i].end = next;
     }
   }
 
-  return { channels, programs: programs.filter((p) => p.end > p.start), errors };
+  return { channels, programs: programs.filter((p) => p.end > p.start && p.end > from && p.start < to), errors };
 }

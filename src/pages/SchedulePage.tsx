@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Bell, Plus, Repeat, Trash2 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { orderedChannels, useApp } from '../store/app';
 import type { ScheduleEntry, ScheduleRule } from '../types';
 import { entryFromGame, entryFromProgram, findConflicts, HOUR, layoutLanes, MIN, snap, startOfDay } from '../lib/scheduler';
-import { Modal, Toggle, fmtDay, fmtTime } from '../components/ui';
+import { Modal, Toggle, fmtDay, fmtTime, useNow } from '../components/ui';
+import { ChannelPicker } from '../components/ChannelPicker';
 import { leagueLabel } from '../lib/sports';
 import { addRuleEntries } from '../hooks/useEngine';
 
@@ -13,7 +15,14 @@ const DAY_MIN = 24 * 60;
 type Drag = { id: string; mode: 'move' | 'resize'; y0: number; start: number; end: number; moved: boolean };
 
 export default function SchedulePage() {
-  const s = useApp();
+  const schedule = useApp((s) => s.schedule);
+  const games = useApp((s) => s.games);
+  const programs = useApp((s) => s.programs);
+  const channels = useApp((s) => s.channels);
+  const rulesCount = useApp((s) => s.rules.length);
+  const update = useApp((s) => s.update);
+  // Minute-resolution clock: keeps memoized filters stable between renders (e.g. during drags).
+  const now = useNow(60_000);
   const [day, setDay] = useState(() => startOfDay(Date.now()));
   const [drag, setDrag] = useState<Drag | null>(null);
   const [editing, setEditing] = useState<ScheduleEntry | null>(null);
@@ -25,10 +34,10 @@ export default function SchedulePage() {
 
   const dayEnd = startOfDay(day + 26 * HOUR);
   const entries = useMemo(() => {
-    const list = s.schedule.map((e) => (drag && e.id === drag.id ? { ...e, start: drag.start, end: drag.end } : e));
+    const list = schedule.map((e) => (drag && e.id === drag.id ? { ...e, start: drag.start, end: drag.end } : e));
     return list.filter((e) => e.end > day && e.start < dayEnd);
-  }, [s.schedule, drag, day, dayEnd]);
-  const conflicts = useMemo(() => findConflicts(s.schedule.filter((e) => e.end > Date.now())), [s.schedule]);
+  }, [schedule, drag, day, dayEnd]);
+  const conflicts = useMemo(() => findConflicts(schedule.filter((e) => e.end > Date.now())), [schedule]);
   const lanes = useMemo(() => layoutLanes(entries), [entries]);
 
   useLayoutEffect(() => {
@@ -39,7 +48,7 @@ export default function SchedulePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day]);
 
-  const commit = (d: Drag) => s.update((st) => ({ schedule: st.schedule.map((e) => (e.id === d.id ? { ...e, start: d.start, end: d.end } : e)) }));
+  const commit = (d: Drag) => update((st) => ({ schedule: st.schedule.map((e) => (e.id === d.id ? { ...e, start: d.start, end: d.end } : e)) }));
 
   useEffect(() => {
     if (!drag) return;
@@ -47,7 +56,7 @@ export default function SchedulePage() {
       setDrag((d) => {
         if (!d) return d;
         const dy = ev.clientY - d.y0;
-        const orig = s.schedule.find((e) => e.id === d.id)!;
+        const orig = useApp.getState().schedule.find((e) => e.id === d.id)!;
         const deltaMs = snap((dy / PPM) * MIN);
         if (d.mode === 'move') return { ...d, start: orig.start + deltaMs, end: orig.end + deltaMs, moved: d.moved || Math.abs(dy) > 3 };
         return { ...d, end: Math.max(orig.start + 15 * MIN, orig.end + deltaMs), moved: d.moved || Math.abs(dy) > 3 };
@@ -82,13 +91,13 @@ export default function SchedulePage() {
     if (!raw) return;
     const { kind, id } = JSON.parse(raw) as { kind: 'game' | 'program'; id: string };
     let e: ScheduleEntry | undefined;
-    if (kind === 'game' && s.games[id]) e = entryFromGame(s.games[id], undefined, 10);
-    const p = kind === 'program' ? s.programs.find((x) => x.id === id) : undefined;
+    if (kind === 'game' && games[id]) e = entryFromGame(games[id], undefined, 10);
+    const p = kind === 'program' ? programs.find((x) => x.id === id) : undefined;
     if (p) e = entryFromProgram(p, undefined, 5);
     if (!e) return;
     // Games and shows keep their real air times; dropping just adds them.
     const entry = e;
-    s.update((st) => ({ schedule: st.schedule.some((x) => x.id === entry.id) ? st.schedule : [...st.schedule, entry] }));
+    update((st) => ({ schedule: st.schedule.some((x) => x.id === entry.id) ? st.schedule : [...st.schedule, entry] }));
   };
 
   const newBlock = (ev: React.MouseEvent) => {
@@ -98,14 +107,13 @@ export default function SchedulePage() {
   };
 
   const days = Array.from({ length: 8 }, (_, i) => startOfDay(startOfDay(Date.now()) + (i - 1) * 24 * HOUR + 2 * HOUR));
-  const now = Date.now();
   const upcomingConflicts = [...conflicts.keys()].length;
 
   const suggestions = useMemo(() => {
-    const games = Object.values(s.games).filter((g) => g.state !== 'post' && g.start >= day && g.start < dayEnd).sort((a, b) => a.start - b.start).slice(0, 30);
-    const progs = s.programs.filter((p) => p.end > Math.max(now, day) && p.start < dayEnd && (p.isSports || p.isNew)).slice(0, 20);
-    return { games, progs };
-  }, [s.games, s.programs, day, dayEnd, now]);
+    const gs = Object.values(games).filter((g) => g.state !== 'post' && g.start >= day && g.start < dayEnd).sort((a, b) => a.start - b.start).slice(0, 30);
+    const progs = programs.filter((p) => p.end > Math.max(now, day) && p.start < dayEnd && (p.isSports || p.isNew)).slice(0, 20);
+    return { games: gs, progs };
+  }, [games, programs, day, dayEnd, now]);
 
   return (
     <div className="schedulePage">
@@ -113,7 +121,7 @@ export default function SchedulePage() {
         <div className="chips">
           <button className={tab === 'day' ? 'on' : ''} onClick={() => setTab('day')}>Day</button>
           <button className={tab === 'agenda' ? 'on' : ''} onClick={() => setTab('agenda')}>Agenda</button>
-          <button className={tab === 'rules' ? 'on' : ''} onClick={() => setTab('rules')}><Repeat /> Rules ({s.rules.length})</button>
+          <button className={tab === 'rules' ? 'on' : ''} onClick={() => setTab('rules')}><Repeat /> Rules ({rulesCount})</button>
         </div>
         {tab === 'day' && <div className="chips">{days.map((d) => <button key={d} className={d === day ? 'on' : ''} onClick={() => setDay(d)}>{fmtDay(d)}</button>)}</div>}
       </div>
@@ -141,6 +149,10 @@ export default function SchedulePage() {
                       className={`block ${conflict ? 'conflict' : ''} ${e.color ?? ''} ${e.eventId ? 'game' : ''} ${drag?.id === e.id ? 'dragging' : ''}`}
                       style={{ top, height: h, left: `calc(${(l.lane / l.lanes) * 100}% + 2px)`, width: `calc(${100 / l.lanes}% - 4px)` }}
                       onPointerDown={(ev) => { ev.preventDefault(); setDrag({ id: e.id, mode: 'move', y0: ev.clientY, start: e.start, end: e.end, moved: false }); }}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`${e.title}, ${fmtTime(e.start)} to ${fmtTime(e.end)}. Press Enter to edit`}
+                      onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setEditing(e); } }}
                     >
                       <b>{e.title}</b>
                       <small>{fmtTime(e.start)} – {fmtTime(e.end)}{e.reminderMin != null && <Bell />}{conflict && <AlertTriangle />}</small>
@@ -159,13 +171,13 @@ export default function SchedulePage() {
             <button className="ghost" onClick={() => setEditing({ id: `custom:${Date.now()}`, title: '', start: snap(Math.max(now, day + 19 * HOUR)), end: snap(Math.max(now, day + 19 * HOUR)) + HOUR, reminderMin: 10 })}><Plus /> Custom block</button>
             {suggestions.games.map((g) => (
               <div key={g.id} className="sugg" draggable onDragStart={(e) => e.dataTransfer.setData('application/x-dial', JSON.stringify({ kind: 'game', id: g.id }))}
-                onDoubleClick={() => s.update((st) => ({ schedule: st.schedule.some((x) => x.eventId === g.id) ? st.schedule : [...st.schedule, entryFromGame(g, undefined, 10)] }))}>
+                onDoubleClick={() => update((st) => ({ schedule: st.schedule.some((x) => x.eventId === g.id) ? st.schedule : [...st.schedule, entryFromGame(g, undefined, 10)] }))}>
                 <b>{g.away.abbr} @ {g.home.abbr}</b><small>{leagueLabel(g.league)} · {fmtTime(g.start)} · {g.broadcasts[0] ?? 'TBD'}</small>
               </div>
             ))}
             {suggestions.progs.map((p) => (
               <div key={p.id} className="sugg" draggable onDragStart={(e) => e.dataTransfer.setData('application/x-dial', JSON.stringify({ kind: 'program', id: p.id }))}>
-                <b>{p.title}</b><small>{fmtTime(p.start)} · {s.channels.find((c) => c.id === p.channelId)?.name}</small>
+                <b>{p.title}</b><small>{fmtTime(p.start)} · {channels.find((c) => c.id === p.channelId)?.name}</small>
               </div>
             ))}
             {!suggestions.games.length && !suggestions.progs.length && <p className="muted small">No games or highlighted shows for this day.</p>}
@@ -209,9 +221,11 @@ function Agenda({ onEdit, conflicts }: { onEdit: (e: ScheduleEntry) => void; con
 }
 
 function EditEntry({ entry, onClose }: { entry: ScheduleEntry; onClose: () => void }) {
-  const s = useApp();
+  const exists = useApp((s) => s.schedule.some((x) => x.id === entry.id));
+  const update = useApp((s) => s.update);
+  const { channels, channelOrder, hidden } = useApp(useShallow((s) => ({ channels: s.channels, channelOrder: s.channelOrder, hidden: s.hidden })));
+  const chOptions = useMemo(() => orderedChannels({ channels, channelOrder, hidden }).map((c) => ({ id: c.id, label: `${c.number} · ${c.name}` })), [channels, channelOrder, hidden]);
   const [e, setE] = useState(entry);
-  const exists = s.schedule.some((x) => x.id === entry.id);
   const toLocalInput = (ms: number) => {
     const d = new Date(ms - new Date(ms).getTimezoneOffset() * MIN);
     return d.toISOString().slice(0, 16);
@@ -219,11 +233,11 @@ function EditEntry({ entry, onClose }: { entry: ScheduleEntry; onClose: () => vo
   const dur = Math.round((e.end - e.start) / MIN);
   const save = () => {
     if (!e.title.trim()) return;
-    s.update((st) => ({ schedule: exists ? st.schedule.map((x) => (x.id === e.id ? e : x)) : [...st.schedule, e] }));
+    update((st) => ({ schedule: exists ? st.schedule.map((x) => (x.id === e.id ? e : x)) : [...st.schedule, e] }));
     onClose();
   };
   const del = () => {
-    s.update((st) => ({ schedule: st.schedule.filter((x) => x.id !== e.id), dismissed: e.ruleId ? [...st.dismissed, e.id] : st.dismissed }));
+    update((st) => ({ schedule: st.schedule.filter((x) => x.id !== e.id), dismissed: e.ruleId ? [...st.dismissed, e.id] : st.dismissed }));
     onClose();
   };
   return (
@@ -234,12 +248,9 @@ function EditEntry({ entry, onClose }: { entry: ScheduleEntry; onClose: () => vo
           <label>Start<input className="field" type="datetime-local" value={toLocalInput(e.start)} onChange={(x) => { const st = new Date(x.target.value).getTime(); if (Number.isFinite(st)) setE({ ...e, start: st, end: st + (e.end - e.start) }); }} /></label>
           <label>Minutes<input className="field" type="number" min={15} step={15} value={dur} onChange={(x) => setE({ ...e, end: e.start + Math.max(15, +x.target.value) * MIN })} /></label>
         </div>
-        <label>Channel
-          <select className="field" value={e.channelId ?? ''} onChange={(x) => setE({ ...e, channelId: x.target.value || undefined })}>
-            <option value="">Auto (from game broadcast) / none</option>
-            {orderedChannels(s).map((c) => <option key={c.id} value={c.id}>{c.number} · {c.name}</option>)}
-          </select>
-        </label>
+        <div className="label" role="group" aria-label="Channel">Channel
+          <ChannelPicker value={e.channelId} options={chOptions} placeholder="Auto (from game broadcast) / none" noneLabel="Auto (from game broadcast) / none" onChange={(id) => setE({ ...e, channelId: id })} />
+        </div>
         <label>Reminder
           <select className="field" value={e.reminderMin ?? ''} onChange={(x) => setE({ ...e, reminderMin: x.target.value === '' ? undefined : +x.target.value })}>
             <option value="">None</option>
@@ -259,7 +270,8 @@ function EditEntry({ entry, onClose }: { entry: ScheduleEntry; onClose: () => vo
 }
 
 function Rules() {
-  const s = useApp();
+  const rules = useApp((s) => s.rules);
+  const update = useApp((s) => s.update);
   const [kind, setKind] = useState<ScheduleRule['kind']>('title');
   const [match, setMatch] = useState('');
   const [startMin, setStartMin] = useState(19 * 60);
@@ -272,7 +284,7 @@ function Rules() {
     const r: ScheduleRule = { id: `r${Date.now()}`, kind, match: match.trim(), enabled: true, reminderMin: kind === 'block' ? undefined : 10, ...(kind === 'block' ? { startMin, endMin, days } : {}) };
     if (!r.match && kind !== 'block') return;
     if (kind === 'block' && !r.match) r.match = 'Reserved';
-    s.update((st) => ({ rules: [...st.rules, r] }));
+    update((st) => ({ rules: [...st.rules, r] }));
     setMatch('');
     setTimeout(addRuleEntries, 0);
   };
@@ -284,11 +296,11 @@ function Rules() {
   return (
     <div className="rules">
       <p className="muted">Rules add entries to your schedule automatically for the coming week. They never record anything — they just plan and remind.</p>
-      {s.rules.map((r) => (
+      {rules.map((r) => (
         <div key={r.id} className="ruleRow">
-          <Toggle on={r.enabled} onChange={(v) => s.update((st) => ({ rules: st.rules.map((x) => (x.id === r.id ? { ...x, enabled: v } : x)) }))} />
+          <Toggle on={r.enabled} label={`Enable rule: ${describe(r)}`} onChange={(v) => update((st) => ({ rules: st.rules.map((x) => (x.id === r.id ? { ...x, enabled: v } : x)) }))} />
           <span>{describe(r)}</span>
-          <button className="icon" aria-label="Delete rule" onClick={() => s.update((st) => ({ rules: st.rules.filter((x) => x.id !== r.id), schedule: st.schedule.filter((e) => e.ruleId !== r.id || e.start < Date.now()) }))}><Trash2 /></button>
+          <button className="icon" aria-label="Delete rule" onClick={() => update((st) => ({ rules: st.rules.filter((x) => x.id !== r.id), schedule: st.schedule.filter((e) => e.ruleId !== r.id || e.start < Date.now()) }))}><Trash2 /></button>
         </div>
       ))}
       <div className="panel">

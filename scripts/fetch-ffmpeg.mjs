@@ -8,7 +8,8 @@ import zlib from 'node:zlib';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const TAG = 'b6.0';
+// Same release tag the installed ffmpeg-static uses, so every platform ships the same ffmpeg build.
+const TAG = require('ffmpeg-static/package.json')['ffmpeg-static']['binary-release-tag'];
 const targets = process.argv.slice(2).length ? process.argv.slice(2) : [`${process.platform}-${process.arch}`];
 
 for (const t of targets) {

@@ -45,8 +45,9 @@ export function ChannelPicker({ value, options, onChange, placeholder = '—', n
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setOpen(false);
-              if (e.key === 'Enter' && shown[0]) { onChange(shown[0].id); setOpen(false); }
+              // Keep Escape/Enter inside the picker (don't close a parent modal or submit its form).
+              if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); }
+              if (e.key === 'Enter') { e.preventDefault(); if (shown[0]) { onChange(shown[0].id); setOpen(false); } }
             }}
           />
           <div className="pickerList">

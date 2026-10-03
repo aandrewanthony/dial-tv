@@ -10,6 +10,8 @@ const page = b.contexts()[0].pages()[0];
 await page.reload();
 await page.waitForTimeout(3000);
 
+const listing = await (await fetch('http://127.0.0.1:8787/list.m3u')).text();
+const expected = listing.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('#EXTINF')).map((l) => l.slice(l.indexOf(',') + 1).trim()).filter((n) => n.toLowerCase().includes(filter.toLowerCase()));
 const results = await page.evaluate(async (filter) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   location.hash = '#/settings/sources'; await sleep(1200);
@@ -24,7 +26,7 @@ const results = await page.evaluate(async (filter) => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(f, filter);
   f.dispatchEvent(new Event('input', { bubbles: true })); await sleep(300);
   const out = [];
-  const names = [...document.querySelectorAll('.channels > button')].map((x) => x.querySelector('b').textContent).filter((n) => /^(TS|NOEXT|HLS) /.test(n));
+  const names = [...document.querySelectorAll('.channels > button')].map((x) => x.querySelector('b').textContent).filter((n) => /^(TS|NOEXT|HLS|COMPAT|RADIO) /.test(n));
   for (const name of names) {
     [...document.querySelectorAll('.channels > button')].find((x) => x.querySelector('b').textContent === name).click();
     const t0 = Date.now(); let r = { name, ok: false, why: 'timeout 60s' };
@@ -42,7 +44,8 @@ const results = await page.evaluate(async (filter) => {
         const video = snap.vb > base.vb && v.videoWidth > 0;
         const audio = snap.ab > base.ab;
         const advancing = snap.t > base.t + 1;
-        r = { name, ok: video && audio && advancing, video, audio, advancing, size: `${v.videoWidth}x${v.videoHeight}`, engine: wrap?.dataset.engine ?? '?', secs: Math.round((Date.now() - t0) / 1000) };
+        const audioOnly = name.startsWith('RADIO');
+        r = { name, ok: (audioOnly || video) && audio && advancing, video, audio, advancing, size: `${v.videoWidth}x${v.videoHeight}`, engine: wrap?.dataset.engine ?? '?', secs: Math.round((Date.now() - t0) / 1000) };
         if (r.ok || Date.now() - t0 > 30000) break;
       }
     }
@@ -51,6 +54,7 @@ const results = await page.evaluate(async (filter) => {
   return out;
 }, filter);
 
+for (const n of expected) if (!results.some((r) => r.name === n)) results.push({ name: n, ok: false, why: 'NOT IMPORTED: the playlist parser dropped this link' });
 let pass = 0;
 for (const r of results) {
   if (r.ok) pass++;
@@ -58,4 +62,4 @@ for (const r of results) {
 }
 console.log(`\n${pass}/${results.length} channels playing with picture AND sound`);
 await b.close();
-process.exit(pass === results.length ? 0 : 1);
+process.exit(results.length > 0 && pass === results.length ? 0 : 1);

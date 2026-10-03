@@ -17,6 +17,8 @@ export interface Channel {
   /** HTTP options from #EXTVLCOPT / attributes (informational in the browser). */
   userAgent?: string;
   referrer?: string;
+  /** Other request headers from the playlist (Origin, Cookie, ...): #EXTVLCOPT, #EXTHTTP, #KODIPROP, |pipe options. */
+  headers?: Record<string, string>;
 }
 
 export interface Program {
@@ -90,6 +92,12 @@ export interface SportEvent {
   situation?: GameSituation;
   /** Week number for weekly leagues. */
   week?: number;
+  /** ESPN status.type.completed: finished normally (false for postponed/canceled/suspended). */
+  completed?: boolean;
+  /** ESPN status.type.name, e.g. "STATUS_FINAL", "STATUS_POSTPONED". */
+  statusName?: string;
+  postponed?: boolean;
+  canceled?: boolean;
 }
 
 export interface ScheduleEntry {
@@ -164,5 +172,6 @@ export interface BetPick {
   units: number;
   createdAt: number;
   label: string;
-  result?: 'win' | 'loss' | 'push';
+  /** 'void' = game postponed/canceled: no units won or lost. */
+  result?: 'win' | 'loss' | 'push' | 'void';
 }

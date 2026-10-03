@@ -1,7 +1,7 @@
 import type { Channel, EpgSource, PlaylistSource, Program } from '../types';
 import type { EpgProvider, PlaylistProvider } from './types';
 import { parseM3U } from '../lib/m3u';
-import { parseXMLTV } from '../lib/xmltv';
+import { parseXMLTV, type XmltvWindow } from '../lib/xmltv';
 import { fetchText } from '../lib/net';
 import { normalizeName } from '../lib/channelMatch';
 
@@ -16,39 +16,54 @@ export function m3uUrlProvider(src: PlaylistSource, numberStart: number): Playli
   };
 }
 
+function pushTo<K, V>(m: Map<K, V[]>, k: K, v: V) {
+  const arr = m.get(k);
+  if (arr) arr.push(v);
+  else m.set(k, [v]);
+}
+
 /**
  * Join XMLTV programmes to playlist channels:
  * 1) tvg-id === xmltv channel id, 2) manual mapping, 3) normalized display-name match.
+ * `window` limits programmes to a time range before they are expanded per channel.
  */
 export function mapXmltvPrograms(
   xml: string,
   channels: Channel[],
   manual: Record<string, string> = {},
+  window: XmltvWindow = {},
 ): { programs: Program[]; unmatched: { id: string; name: string }[]; xmltvChannels: { id: string; name: string }[] } {
-  const parsed = parseXMLTV(xml);
+  const parsed = parseXMLTV(xml, window);
   const byTvg = new Map<string, Channel[]>();
   const byName = new Map<string, Channel[]>();
   for (const c of channels) {
-    if (c.tvgId) byTvg.set(c.tvgId.toLowerCase(), [...(byTvg.get(c.tvgId.toLowerCase()) ?? []), c]);
+    if (c.tvgId) pushTo(byTvg, c.tvgId.toLowerCase(), c);
     const n = normalizeName(c.name);
-    byName.set(n, [...(byName.get(n) ?? []), c]);
+    // An empty normalized name would match every other empty name: skip it.
+    if (n) pushTo(byName, n, c);
   }
   const target = new Map<string, string[]>();
-  for (const [chId, xId] of Object.entries(manual)) target.set(xId, [...(target.get(xId) ?? []), chId]);
+  for (const [chId, xId] of Object.entries(manual)) pushTo(target, xId, chId);
   const unmatched: { id: string; name: string }[] = [];
   for (const xc of parsed.channels) {
     const ids = new Set(target.get(xc.id) ?? []);
     for (const c of byTvg.get(xc.id.toLowerCase()) ?? []) ids.add(c.id);
-    if (!ids.size) for (const n of xc.names) for (const c of byName.get(normalizeName(n)) ?? []) ids.add(c.id);
+    if (!ids.size) {
+      for (const name of xc.names) {
+        const n = normalizeName(name);
+        if (!n) continue;
+        for (const c of byName.get(n) ?? []) ids.add(c.id);
+      }
+    }
     if (ids.size) target.set(xc.id, [...ids]);
     else unmatched.push({ id: xc.id, name: xc.names[0] ?? xc.id });
   }
   const programs: Program[] = [];
   for (const p of parsed.programs) {
-    for (const chId of target.get(p.xmltvChannel) ?? []) {
-      const { xmltvChannel: _x, ...rest } = p;
-      programs.push({ ...rest, id: `${chId}|${p.start}`, channelId: chId });
-    }
+    const chIds = target.get(p.xmltvChannel);
+    if (!chIds) continue;
+    const { xmltvChannel: _x, ...rest } = p;
+    for (const chId of chIds) programs.push({ ...rest, id: `${chId}|${p.start}`, channelId: chId });
   }
   return {
     programs,

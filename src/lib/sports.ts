@@ -94,18 +94,29 @@ export function payout(units: number, price = '-110') {
   return n > 0 ? units * (n / 100) : units * (100 / Math.abs(n));
 }
 
-/** Grade a pick against a final game. Returns undefined if the game is not final. */
+const SOCCER = new Set<League>(['mls', 'epl']);
+
+/**
+ * Grade a pick against a game. Returns undefined while the game is not final (or the
+ * pick can't be graded, e.g. a spread/total pick with no line). Postponed/canceled → 'void'.
+ */
 export function gradePick(p: BetPick, g: SportEvent | undefined): BetPick['result'] | undefined {
-  if (!g || g.state !== 'post' || g.homeScore == null || g.awayScore == null) return undefined;
+  if (!g) return undefined;
+  if (g.postponed || g.canceled) return 'void';
+  if (g.state !== 'post' || g.completed === false || g.homeScore == null || g.awayScore == null) return undefined;
+  if ((p.market === 'spread' || p.market === 'total') && p.line == null) return undefined;
   const pickedHome = p.side === g.home.abbr;
   const mine = pickedHome ? g.homeScore : g.awayScore;
   const theirs = pickedHome ? g.awayScore : g.homeScore;
   let margin: number;
-  if (p.market === 'moneyline') margin = mine - theirs;
-  else if (p.market === 'spread') margin = mine - theirs + (p.line ?? 0);
+  if (p.market === 'moneyline') {
+    margin = mine - theirs;
+    // Soccer moneyline is a 3-way market: a draw loses a team bet.
+    if (margin === 0 && SOCCER.has(g.league)) return 'loss';
+  } else if (p.market === 'spread') margin = mine - theirs + p.line!;
   else {
     const total = g.homeScore + g.awayScore;
-    margin = p.side === 'over' ? total - (p.line ?? 0) : (p.line ?? 0) - total;
+    margin = p.side === 'over' ? total - p.line! : p.line! - total;
   }
   return margin > 0 ? 'win' : margin < 0 ? 'loss' : 'push';
 }
@@ -113,7 +124,7 @@ export function gradePick(p: BetPick, g: SportEvent | undefined): BetPick['resul
 export function pickProfit(p: BetPick) {
   if (p.result === 'win') return payout(p.units, p.price);
   if (p.result === 'loss') return -p.units;
-  return 0;
+  return 0; // push, void, pending
 }
 
 export interface PickRecord {
@@ -121,6 +132,8 @@ export interface PickRecord {
   wins: number;
   losses: number;
   pushes: number;
+  /** Postponed/canceled picks (no action). */
+  voids: number;
   pending: number;
   units: number;
   streak: string;
@@ -128,15 +141,16 @@ export interface PickRecord {
 
 export function recordFor(player: string, picks: BetPick[]): PickRecord {
   const mine = picks.filter((p) => p.player === player).sort((a, b) => a.createdAt - b.createdAt);
-  const r: PickRecord = { player, wins: 0, losses: 0, pushes: 0, pending: 0, units: 0, streak: '—' };
+  const r: PickRecord = { player, wins: 0, losses: 0, pushes: 0, voids: 0, pending: 0, units: 0, streak: '—' };
   for (const p of mine) {
     if (p.result === 'win') r.wins++;
     else if (p.result === 'loss') r.losses++;
     else if (p.result === 'push') r.pushes++;
+    else if (p.result === 'void') r.voids++;
     else r.pending++;
     r.units += pickProfit(p);
   }
-  const graded = mine.filter((p) => p.result && p.result !== 'push');
+  const graded = mine.filter((p) => p.result === 'win' || p.result === 'loss');
   if (graded.length) {
     const last = graded[graded.length - 1].result!;
     let n = 0;

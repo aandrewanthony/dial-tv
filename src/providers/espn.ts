@@ -91,6 +91,10 @@ export function parseScoreboard(league: League, json: any): SportEvent[] {
     const away = team(awayC);
     const st = e.status ?? c.status ?? {};
     const state: SportEvent['state'] = st.type?.state === 'in' ? 'in' : st.type?.state === 'post' ? 'post' : 'pre';
+    const statusName = typeof st.type?.name === 'string' ? (st.type.name as string) : undefined;
+    const completed = typeof st.type?.completed === 'boolean' ? (st.type.completed as boolean) : undefined;
+    const postponed = /POSTPONED/i.test(statusName ?? '');
+    const canceled = /CANCEL/i.test(statusName ?? '');
     const start = Date.parse(e.date);
     const broadcasts: string[] = [];
     for (const b of c.broadcasts ?? []) for (const n of b.names ?? []) if (!broadcasts.includes(n)) broadcasts.push(n);
@@ -115,19 +119,43 @@ export function parseScoreboard(league: League, json: any): SportEvent[] {
       odds: odds(c.odds, home, away),
       situation: state === 'in' ? situation(c.situation) : undefined,
       week: e.week?.number,
+      completed,
+      statusName,
+      postponed: postponed || undefined,
+      canceled: canceled || undefined,
     });
   }
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+const NY_FMT = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+/** ESPN slate date (YYYYMMDD) for an instant: ESPN files games under their US Eastern calendar date. */
+export function nyDate(ms: number): string {
+  const parts = NY_FMT.formatToParts(new Date(ms));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${get('year')}${get('month')}${get('day')}`;
+}
+
+/** Shift a YYYYMMDD string by whole days (calendar arithmetic, timezone-free). */
+export function shiftYmd(date: string, days: number): string {
+  const d = new Date(Date.UTC(+date.slice(0, 4), +date.slice(4, 6) - 1, +date.slice(6, 8) + days));
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Scoreboard for an ESPN date string (YYYYMMDD). */
+export async function scoreboardFor(league: League, dates: string, signal?: AbortSignal): Promise<SportEvent[]> {
+  const extra = league === 'ncaaf' ? '&groups=80' : league === 'ncaam' ? '&groups=50&limit=200' : '';
+  const res = await fetch(`${BASE}/${PATHS[league]}/scoreboard?dates=${dates}${extra}`, { signal });
+  if (!res.ok) throw new Error(`ESPN ${league} ${res.status}`);
+  return parseScoreboard(league, await res.json());
+}
+
 export const espnProvider: SportsProvider = {
   id: 'espn',
-  async scoreboard(league, day, signal) {
-    const extra = league === 'ncaaf' ? '&groups=80' : league === 'ncaam' ? '&groups=50&limit=200' : '';
-    const res = await fetch(`${BASE}/${PATHS[league]}/scoreboard?dates=${ymd(day)}${extra}`, { signal });
-    if (!res.ok) throw new Error(`ESPN ${league} ${res.status}`);
-    return parseScoreboard(league, await res.json());
+  scoreboard(league, day, signal) {
+    return scoreboardFor(league, ymd(day), signal);
   },
 };
 

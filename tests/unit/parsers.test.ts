@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseAttributes, parseM3U } from '../../src/lib/m3u';
+import { parseAttributes, parseHeaderPairs, parseM3U, safeDecode } from '../../src/lib/m3u';
 import { parseXMLTV, parseXmltvDate } from '../../src/lib/xmltv';
 import { mapXmltvPrograms } from '../../src/providers/remote';
-import { redactUrl, safeUrl } from '../../src/lib/url';
+import { cleanHeaderValue, redactUrl, safeStreamUrl, safeUrl, splitUserinfo } from '../../src/lib/url';
 
 const fixture = (f: string) => readFileSync(resolve('tests/fixtures', f), 'utf8');
 
@@ -45,6 +45,74 @@ describe('parseM3U', () => {
     expect(r.channels).toHaveLength(1);
     expect(r.channels[0].group).toBe('Kids');
     expect(r.skipped[0].reason).toBe('URL without EXTINF');
+  });
+
+  it('accepts the streaming protocols VLC plays and still rejects unsafe ones', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXTINF:-1,Multicast', 'udp://@239.1.1.1:1234',
+      '#EXTINF:-1,RTMP', 'rtmp://host.example/app/key',
+      '#EXTINF:-1,RTSP', 'rtsp://cam.example:554/stream1',
+      '#EXTINF:-1,RTP', 'rtp://239.0.0.1:5000',
+      '#EXTINF:-1,MMS', 'mms://media.example/live',
+      '#EXTINF:-1,MMSH', 'mmsh://media.example/live',
+      '#EXTINF:-1,SRT', 'srt://srt.example:9000',
+      '#EXTINF:-1,RTMPS', 'rtmps://host.example/app/key',
+      '#EXTINF:-1,JS', 'javascript:alert(1)',
+      '#EXTINF:-1,File', 'file:///etc/passwd',
+      '#EXTINF:-1,Data', 'data:video/mp4;base64,AAAA',
+      '#EXTINF:-1,FTP', 'ftp://h.example/x.ts',
+      '#EXTINF:-1,Concat', 'concat:a.ts|b.ts',
+    ].join('\n');
+    const r = parseM3U(text, 's');
+    expect(r.channels.map((c) => c.url)).toEqual([
+      'udp://@239.1.1.1:1234', 'rtmp://host.example/app/key', 'rtsp://cam.example:554/stream1', 'rtp://239.0.0.1:5000',
+      'mms://media.example/live', 'mmsh://media.example/live', 'srt://srt.example:9000', 'rtmps://host.example/app/key',
+    ]);
+    expect(r.skipped).toHaveLength(5);
+  });
+
+  it('reads headers from EXTINF attributes, #EXTVLCOPT, #EXTHTTP, #KODIPROP and pipe options', () => {
+    const text = [
+      '#EXTM3U',
+      '#EXTINF:-1 http-user-agent="AttrUA/1" http-referrer="https://attr.example/",A',
+      'https://a.example/a.m3u8',
+      '#EXTINF:-1 referer="https://r.example/",B',
+      'https://b.example/b.m3u8',
+      '#EXTINF:-1,C',
+      '#EXTVLCOPT:http-origin=https://o.example',
+      '#EXTVLCOPT:http-cookie=sid=abc=def; x=1',
+      '#EXTVLCOPT:http-user-agent=VlcOptUA',
+      'https://c.example/c.m3u8',
+      '#EXTINF:-1,D',
+      '#EXTHTTP:{"cookie":"k=v","User-Agent":"JsonUA","Referer":"https://j.example/"}',
+      'https://d.example/d.m3u8',
+      '#EXTINF:-1,E',
+      '#KODIPROP:inputstream.adaptive.stream_headers=User-Agent=Kodi%2F20&Origin=https%3A%2F%2Fk.example',
+      'https://e.example/e.mpd',
+      '#EXTINF:-1 user-agent="Weak",F',
+      'https://f.example/f.ts|User-Agent=Pipe%2F1&Origin=https://p.example&Cookie=t=a=b&Referer=%E0%A4%A',
+    ].join('\n');
+    const [a, b, c, d, e, f] = parseM3U(text, 's').channels;
+    expect(a).toMatchObject({ userAgent: 'AttrUA/1', referrer: 'https://attr.example/' });
+    expect(b).toMatchObject({ referrer: 'https://r.example/' });
+    expect(c).toMatchObject({ userAgent: 'VlcOptUA', headers: { Origin: 'https://o.example', Cookie: 'sid=abc=def; x=1' } });
+    expect(d).toMatchObject({ userAgent: 'JsonUA', referrer: 'https://j.example/', headers: { cookie: 'k=v' } });
+    expect(e).toMatchObject({ userAgent: 'Kodi/20', headers: { Origin: 'https://k.example' } });
+    expect(f).toMatchObject({ url: 'https://f.example/f.ts', userAgent: 'Pipe/1', referrer: '%E0%A4%A', headers: { Origin: 'https://p.example', Cookie: 't=a=b' } });
+    expect(a.headers).toBeUndefined();
+  });
+
+  it('never lets CR/LF from a playlist into header values, and survives malformed options', () => {
+    const r = parseM3U('#EXTM3U\n#EXTINF:-1,X\n#EXTHTTP:{not json\nhttps://x.example/x.ts|User-Agent=a%0D%0AX-Evil:%201&=novalue&noeq\n');
+    expect(r.channels[0].userAgent).toBe('a X-Evil: 1');
+    expect(r.channels[0].headers).toBeUndefined();
+  });
+
+  it('pipe/header helpers split on the first "=" and decode safely', () => {
+    expect(parseHeaderPairs('A=1=2&B=%ZZ&=x&C')).toEqual([['A', '1=2'], ['B', '%ZZ']]);
+    expect(safeDecode('%E0%A4%A')).toBe('%E0%A4%A');
+    expect(safeDecode('Dial%2F1.0')).toBe('Dial/1.0');
   });
 
   it('parseAttributes supports single quotes and bare values', () => {
@@ -91,6 +159,20 @@ describe('url safety', () => {
     expect(safeUrl('javascript:alert(1)')).toBeNull();
     expect(safeUrl('file:///etc/passwd')).toBeNull();
     expect(safeUrl(' https://a.example/x ')).toBe('https://a.example/x');
+  });
+  it('stream URLs allow VLC protocols but not local/script ones', () => {
+    expect(safeStreamUrl('udp://@239.1.1.1:1234')).toBe('udp://@239.1.1.1:1234');
+    expect(safeStreamUrl('rtsp://u:p@cam.example/live')).toBe('rtsp://u:p@cam.example/live');
+    expect(safeStreamUrl('HTTPS://A.example/x')).toBe('https://a.example/x');
+    for (const bad of ['javascript:alert(1)', 'file:///C:/x.ts', 'data:text/html,x', 'blob:https://a/x', 'ftp://a/x', 'rtmp:nohost', 'udp://', 'rtmp://a b/c', 'chrome://settings']) {
+      expect(safeStreamUrl(bad)).toBeNull();
+    }
+    expect(safeUrl('rtmp://host/app')).toBeNull(); // playlist/EPG downloads stay http(s)-only
+  });
+  it('splits user:pass@ into a clean URL plus Basic auth', () => {
+    expect(splitUserinfo('http://bob:p%40ss@h.example/live.ts')).toEqual({ url: 'http://h.example/live.ts', authorization: `Basic ${btoa('bob:p@ss')}` });
+    expect(splitUserinfo('http://h.example/x')).toEqual({ url: 'http://h.example/x' });
+    expect(cleanHeaderValue('a\r\nb\0c')).toBe('a b c');
   });
   it('redacts credentials in userinfo, query and Xtream paths', () => {
     expect(redactUrl('http://bob:hunter2@h.example/get.php?username=bob&password=hunter2&type=m3u')).toBe(

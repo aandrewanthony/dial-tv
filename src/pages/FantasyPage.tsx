@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Gamepad2, Grid2x2, Loader2, LogOut, Play, RefreshCw } from 'lucide-react';
 import { useApp } from '../store/app';
+import { useShallow } from 'zustand/react/shallow';
 import { useFantasy } from '../store/fantasy';
 import { sleeperProvider } from '../providers/sleeper';
 import type { FantasyLeague, FantasyPlayer, FantasyTeam } from '../providers/types';
@@ -40,7 +41,7 @@ function Connect() {
   const choose = (l: FantasyLeague) => {
     set({ fantasy: { provider: 'sleeper', username, userId: user!.userId, displayName: user!.displayName, leagueId: l.id, leagueName: l.name } });
     useFantasy.setState({ leagues: leagues ?? [], matchup: undefined });
-    setTimeout(() => void useFantasy.getState().refresh(), 0);
+    loadLeague(l.id);
   };
 
   return (
@@ -110,12 +111,29 @@ function Roster({ team, side }: { team: FantasyTeam; side: 'me' | 'opp' }) {
   );
 }
 
+/**
+ * Load a newly selected league. If a refresh for the previous league is still in flight,
+ * drop its result and refresh again once it lands, so the old league never shows.
+ */
+function loadLeague(leagueId: string) {
+  const f = useFantasy.getState();
+  useFantasy.setState({ matchup: undefined });
+  if (!f.loading) { void f.refresh(); return; }
+  const unsub = useFantasy.subscribe((st, prev) => {
+    if (!prev.loading || st.loading) return;
+    unsub();
+    if (useApp.getState().fantasy?.leagueId !== leagueId) return;
+    useFantasy.setState({ matchup: undefined });
+    void st.refresh();
+  });
+}
+
 export default function FantasyPage() {
   const cfg = useApp((s) => s.fantasy);
   const set = useApp((s) => s.set);
   const channels = useApp((s) => s.channels);
   const overrides = useApp((s) => s.networkOverrides);
-  const { matchup, loading, error, week, updated, refresh, leagues } = useFantasy();
+  const { matchup, loading, error, week, updated, refresh, leagues } = useFantasy(useShallow((s) => ({ matchup: s.matchup, loading: s.loading, error: s.error, week: s.week, updated: s.updated, refresh: s.refresh, leagues: s.leagues })));
   const ranked = useRankedGames((g) => g.league === 'nfl' && g.state !== 'post');
   const withStakes = useMemo(() => ranked.filter((r) => r.stakes), [ranked]);
 
@@ -144,7 +162,7 @@ export default function FantasyPage() {
           {leagues.length > 1 ? (
             <select className="field small" value={cfg.leagueId} onChange={(e) => {
               const l = leagues.find((x) => x.id === e.target.value);
-              if (l) { set({ fantasy: { ...cfg, leagueId: l.id, leagueName: l.name } }); useFantasy.setState({ matchup: undefined }); setTimeout(() => void refresh(), 0); }
+              if (l) { set({ fantasy: { ...cfg, leagueId: l.id, leagueName: l.name } }); loadLeague(l.id); }
             }}>
               {leagues.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
@@ -159,7 +177,7 @@ export default function FantasyPage() {
       </div>
       {error && <div className="banner warn">{error}</div>}
       {!matchup ? (
-        <Empty title="Loading matchup…" />
+        <Empty title={`Loading ${cfg.leagueName ?? 'matchup'}…`} />
       ) : (
         <>
           <div className="matchHead">

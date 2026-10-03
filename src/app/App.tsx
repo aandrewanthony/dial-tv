@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import {
-  CalendarDays, Clock, Gamepad2, Grid2x2, Home, Lock, Radio, Search, Settings, Ticket, Trophy, Tv, X, Flame, Bell, Zap,
+  AlertTriangle, CalendarDays, Clock, Gamepad2, Grid2x2, Home, Lock, Radio, Search, Settings, Ticket, Trophy, Tv, X, Flame, Bell, Zap,
 } from 'lucide-react';
 import { navigate, useRoute, type Route } from './router';
 import { orderedChannels, sha256, showScore, useApp } from '../store/app';
@@ -53,6 +53,8 @@ export default function App() {
   const density = useApp((s) => s.settings.density);
   const accent = useApp((s) => s.settings.accent);
   const theater = useApp((s) => s.theater);
+  // Store may expose a storage failure (IndexedDB unreadable); typed loosely so this works either way.
+  const storageError = useApp((s) => (s as { storageError?: string }).storageError);
   const liveCount = useApp((s) => Object.values(s.games).filter((g) => g.state === 'in').length);
 
   useGlobalKeys(route);
@@ -85,6 +87,7 @@ export default function App() {
             <Search /><span>Search channels, shows, teams…</span><kbd>Ctrl K</kbd>
           </button>
         </header>
+        {storageError && <div className="banner warn storageBanner" role="alert"><AlertTriangle /> {storageError}</div>}
         {!hydrated ? <div className="loadingPage">Loading…</div> : (
           <Suspense fallback={<div className="loadingPage">Loading…</div>}>
             {route === 'home' && <HomePage />}
@@ -139,11 +142,11 @@ function BottomLine() {
     const vis = showScore({ settings }, g.id);
     const c = clutchInfo(g);
     return (
-      <span key={k + g.id} className={`tick ${g.state} ${c.clutch ? 'clutch' : ''}`} onClick={() => navigate('sports')}>
+      <button type="button" key={k + g.id} className={`tick ${g.state} ${c.clutch ? 'clutch' : ''}`} onClick={() => navigate('sports')} tabIndex={k === 'b' ? -1 : undefined} aria-hidden={k === 'b' ? true : undefined}>
         <i>{g.league.toUpperCase()}</i>
         {g.away.abbr} {g.state !== 'pre' && vis ? g.awayScore : ''} · {g.home.abbr} {g.state !== 'pre' && vis ? g.homeScore : ''}
         <em>{g.state === 'pre' ? new Date(g.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : vis ? g.statusText : g.state === 'in' ? 'LIVE' : 'FINAL'}</em>
-      </span>
+      </button>
     );
   });
   return (
@@ -169,33 +172,41 @@ function useGlobalKeys(route: Route) {
       if (t?.closest?.('input, textarea, select, [contenteditable]') || e.ctrlKey || e.metaKey || e.altKey) return;
       if (useApp.getState().searchOpen) return;
       const s = useApp.getState();
-      const list = orderedChannels(s);
-      const idx = list.findIndex((c) => c.id === s.currentId);
       const go = (id?: string) => {
         if (!id) return;
+        // On Multiview the channel goes into a tile (first empty, else the focused one).
+        if (route === 'multiview') { window.dispatchEvent(new CustomEvent('dial:mvtune', { detail: id })); return; }
         s.tune(id);
-        if (route !== 'watch' && route !== 'multiview') navigate('watch');
+        if (route !== 'watch') navigate('watch');
+      };
+      const zap = (d: number) => {
+        const list = orderedChannels(s);
+        const idx = list.findIndex((c) => c.id === s.currentId);
+        go(list[(idx + d + list.length) % list.length]?.id);
       };
       if (/^[0-9]$/.test(e.key)) {
         digits += e.key;
         clearTimeout(digitTimer);
-        useApp.setState({ toasts: [...s.toasts.filter((x) => x.id !== 'chnum'), { id: 'chnum', kind: 'info', title: `CH ${digits}` }] });
+        useApp.setState((st) => ({ toasts: [...st.toasts.filter((x) => x.id !== 'chnum'), { id: 'chnum', kind: 'info', title: `CH ${digits}` }] }));
         digitTimer = setTimeout(() => {
-          const ch = list.find((c) => String(c.number) === digits);
-          useApp.getState().dismissToast('chnum');
+          const typed = digits;
+          const app = useApp.getState();
+          const ch = orderedChannels(app).find((c) => String(c.number) === typed);
+          app.dismissToast('chnum');
           digits = '';
-          go(ch?.id);
+          if (ch) go(ch.id);
+          else app.toast({ kind: 'error', title: `CH ${typed} not found`, ttl: 3000 });
         }, 1200);
         return;
       }
       switch (e.key) {
         case 'ArrowUp':
         case 'PageUp':
-          if (route === 'watch') { e.preventDefault(); go(list[(idx - 1 + list.length) % list.length]?.id); }
+          if (route === 'watch') { e.preventDefault(); zap(-1); }
           break;
         case 'ArrowDown':
         case 'PageDown':
-          if (route === 'watch') { e.preventDefault(); go(list[(idx + 1) % list.length]?.id); }
+          if (route === 'watch') { e.preventDefault(); zap(1); }
           break;
         case 'l': go(s.prevChannelId); break;
         case 'g': navigate('guide'); break;
@@ -243,7 +254,9 @@ function LockGate() {
   const leave = () => {
     const s = useApp.getState();
     const safe = orderedChannels(s).find((c) => !locked.includes(c.id));
-    useApp.setState({ currentId: s.prevChannelId && !locked.includes(s.prevChannelId) ? s.prevChannelId : safe?.id });
+    const id = s.prevChannelId && !locked.includes(s.prevChannelId) ? s.prevChannelId : safe?.id;
+    // lastChannelId too, so the next launch doesn't reopen the locked channel.
+    useApp.setState({ currentId: id, lastChannelId: id });
   };
   return (
     <Modal title="Channel locked" onClose={leave}>

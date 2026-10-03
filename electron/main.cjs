@@ -2,30 +2,100 @@
 // what a browser can't: access to IPTV hosts that don't send CORS headers.
 const { app, BrowserWindow, ipcMain, session, shell, Menu } = require('electron');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const decoder = require('./decoder.cjs');
+const { cleanHeader, VLC_UA } = decoder;
 
 const isDev = !app.isPackaged && process.env.DIAL_DEV_URL;
 
 // Separate profile (data + single-instance lock) for testing next to an installed copy.
 if (process.env.DIAL_PROFILE) app.setPath('userData', path.join(app.getPath('temp'), 'dial-tv-' + process.env.DIAL_PROFILE));
 let win;
+const appContents = new Set(); // webContents ids of Dial TV's own windows
+const APP_INDEX = pathToFileURL(path.join(__dirname, '..', 'dist', 'index.html')).href;
 
 /**
- * IPTV playlists, guides and streams almost never send CORS headers. Inside this
- * app's own session we add permissive CORS response headers so fetch()/hls.js work
- * against any provider. Only affects requests made by Dial TV itself.
+ * Per-stream request headers (playlist User-Agent / Referer / Origin / Cookie, Basic auth),
+ * registered by the player before it connects. Applied here instead of as custom request
+ * headers so hls.js/mpegts.js/<video> requests need no CORS preflight.
+ */
+const byUrl = new Map(); // exact URL → headers
+const byOrigin = new Map(); // origin → headers (segments, keys, redirects on the same host)
+const MAX_ENTRIES = 256;
+const remember = (map, key, value) => {
+  map.delete(key);
+  map.set(key, value);
+  if (map.size > MAX_ENTRIES) map.delete(map.keys().next().value);
+};
+const originOf = (u) => { try { return new URL(u).origin; } catch { return null; } };
+const isSecret = (name) => /^(authorization|cookie)$/i.test(name);
+
+/** Validate + sanitize headers from the renderer (no CR/LF, no hop-by-hop headers). */
+function sanitizeHeaders(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [k, v] of Object.entries(raw).slice(0, 32)) {
+    const val = cleanHeader(v);
+    if (val && /^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$/.test(k) && !/^(host|content-length|connection|transfer-encoding|upgrade|te|keep-alive|proxy-.*)$/i.test(k)) out[k] = val;
+  }
+  return out;
+}
+
+ipcMain.handle('dial:stream-headers', (e, url, headers) => {
+  if (!appContents.has(e.sender.id) || typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false;
+  const origin = originOf(url);
+  if (!origin) return false;
+  const h = sanitizeHeaders(headers);
+  remember(byUrl, url, h);
+  remember(byOrigin, origin, h);
+  return true;
+});
+
+/** Set a header, replacing any existing spelling of the same name. */
+function setHeader(h, name, value) {
+  for (const k of Object.keys(h)) if (k.toLowerCase() === name.toLowerCase()) delete h[k];
+  h[name] = value;
+}
+const getHeader = (h, name) => Object.entries(h).find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1];
+
+// Requests that belong to Dial TV: its windows, or workers it started (no webContents).
+const fromApp = (d) => d.webContentsId === undefined || appContents.has(d.webContentsId);
+const STREAM_TYPES = new Set(['xhr', 'media', 'other']);
+
+/**
+ * IPTV playlists, guides and streams almost never send CORS headers. For Dial TV's own
+ * fetch/XHR/media requests we add permissive CORS response headers so fetch()/hls.js work
+ * against any provider. Pages, scripts, images and other webContents are left alone.
  */
 function allowCrossOrigin() {
   const ses = session.defaultSession;
   ses.webRequest.onBeforeSendHeaders((details, cb) => {
     const h = details.requestHeaders;
-    // Per-request UA/Referer overrides sent by the player (from #EXTVLCOPT / Kodi pipe options).
-    if (h['X-Dial-UA']) { h['User-Agent'] = h['X-Dial-UA']; delete h['X-Dial-UA']; }
-    if (h['X-Dial-Referer']) { h['Referer'] = h['X-Dial-Referer']; delete h['X-Dial-Referer']; }
+    if (!fromApp(details) || !STREAM_TYPES.has(details.resourceType)) return cb({ requestHeaders: h });
+    const origin = originOf(details.url);
+    const registered = byUrl.get(details.url) ?? (origin ? byOrigin.get(origin) : undefined);
+    if (registered) {
+      for (const [k, v] of Object.entries(registered)) setHeader(h, k, v);
+      // VLC's User-Agent unless the playlist set one: some providers block browser UAs.
+      if (!registered['User-Agent'] && !Object.keys(registered).some((k) => /^user-agent$/i.test(k))) setHeader(h, 'User-Agent', VLC_UA);
+      const o = getHeader(h, 'Origin');
+      if (!Object.keys(registered).some((k) => /^origin$/i.test(k)) && (o === 'null' || /^file:/i.test(o ?? ''))) {
+        for (const k of Object.keys(h)) if (/^origin$/i.test(k)) delete h[k];
+      }
+    }
     cb({ requestHeaders: h });
   });
+  // A stream that redirects to another host keeps its headers there (minus credentials).
+  ses.webRequest.onBeforeRedirect((details) => {
+    if (!fromApp(details) || !STREAM_TYPES.has(details.resourceType)) return;
+    const from = byUrl.get(details.url) ?? byOrigin.get(originOf(details.url) ?? '');
+    const to = originOf(details.redirectURL);
+    if (!from || !to || byOrigin.has(to) || !/^https?:/i.test(to)) return;
+    const safe = Object.fromEntries(Object.entries(from).filter(([k]) => !isSecret(k)));
+    remember(byOrigin, to, safe);
+  });
   ses.webRequest.onHeadersReceived((details, cb) => {
-    if (details.url.startsWith('file:') || details.url.startsWith('devtools:')) return cb({});
+    if (!fromApp(details) || !STREAM_TYPES.has(details.resourceType) || !/^https?:/i.test(details.url)) return cb({});
     const headers = {};
     for (const [k, v] of Object.entries(details.responseHeaders || {})) {
       if (!/^access-control-allow-(origin|headers|methods|credentials)$/i.test(k)) headers[k] = v;
@@ -38,6 +108,13 @@ function allowCrossOrigin() {
     if (details.method === 'OPTIONS') return cb({ responseHeaders: headers, statusLine: 'HTTP/1.1 200 OK' });
     cb({ responseHeaders: headers });
   });
+}
+
+/** Only the app itself may be loaded in the window (no dropped files, no redirects elsewhere). */
+function isAppUrl(url) {
+  if (isDev) return url.startsWith(process.env.DIAL_DEV_URL);
+  const bare = String(url).split('#')[0];
+  return process.platform === 'win32' || process.platform === 'darwin' ? bare.toLowerCase() === APP_INDEX.toLowerCase() : bare === APP_INDEX;
 }
 
 function createWindow() {
@@ -59,6 +136,13 @@ function createWindow() {
     },
   });
 
+  const id = win.webContents.id;
+  appContents.add(id);
+  win.on('closed', () => {
+    appContents.delete(id);
+    win = null;
+  });
+
   if (isDev) win.loadURL(process.env.DIAL_DEV_URL);
   else win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 
@@ -67,9 +151,9 @@ function createWindow() {
     if (/^https?:/i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
-  win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('file:') && !(isDev && url.startsWith(process.env.DIAL_DEV_URL))) e.preventDefault();
-  });
+  // Also blocks a file dropped onto the window (Chromium navigates to it by default).
+  win.webContents.on('will-navigate', (e, url) => { if (!isAppUrl(url)) e.preventDefault(); });
+  win.webContents.on('will-redirect', (e, url, _inPlace, isMainFrame) => { if (isMainFrame !== false && !isAppUrl(url)) e.preventDefault(); });
 }
 
 // Mini player: small, always-on-top window; restores the previous bounds when turned off.
@@ -98,6 +182,8 @@ if (!app.requestSingleInstanceLock()) {
     if (win) {
       if (win.isMinimized()) win.restore();
       win.focus();
+    } else if (app.isReady()) {
+      createWindow();
     }
   });
   app.setAppUserModelId('com.dialtv.player'); // Windows notifications + taskbar grouping
@@ -106,7 +192,7 @@ if (!app.requestSingleInstanceLock()) {
     allowCrossOrigin();
     decoder.start(app, ipcMain);
     createWindow();
-    app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow());
+    app.on('activate', () => { if (!win) createWindow(); });
   });
   app.on('window-all-closed', () => process.platform !== 'darwin' && app.quit());
 }
