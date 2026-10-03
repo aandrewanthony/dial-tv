@@ -1,23 +1,42 @@
-# Dial TV — IPTV Command Center
-A functional base IPTV player for Web, Windows, and macOS. It is intended for streams/playlists the user is authorized to access.
+# Dial TV — Personal TV & Sports Command Center
 
-## Included
-- HLS playback via native Safari HLS or hls.js
-- Three public demo/test HLS streams
-- TV-style responsive UI
-- Channel switching, favorites, search
-- Cable-style EPG prototype
-- Drag/drop personal scheduler with local persistence
-- Sports hub with channel tune-in
-- Local M3U import/parser
-- Shared React/TypeScript codebase
-- Tauri 2 desktop wrapper for Windows/macOS
+A fast, keyboard-friendly IPTV player built around live sports. Runs in the browser and as a desktop app (Windows / macOS via Tauri). Bring your own playlist: Dial TV plays streams you're authorized to watch and adds a sports layer on top.
 
-## Web
-`npm install` then `npm run dev`. Production: `npm run build`; deploy `dist/` to any static host. Remote HLS servers must permit browser playback/CORS.
+## Highlights
 
-## Windows/macOS
-Install Rust and Tauri OS prerequisites, then `npm install` and `npm run tauri build`. Windows produces its supported installer bundles. macOS builds must run on macOS; distribution signing/notarization requires your Apple Developer credentials.
+| | |
+|---|---|
+| **Game Day home** | Countdown to your teams' next games, the single best game on right now, tonight's plan, fantasy score, open picks. |
+| **Watchability ranking** | Live games scored by how close and late they are + your fantasy exposure + your favorite teams. |
+| **Clutch alerts** | Toast (and optional system notification) when a live game gets tight late — one-score 4th quarter, OT, tied in the 9th, one-goal 3rd period. Optional **auto-switch**. |
+| **Smart Sports Mapper** | Turns "CBS / ESPN2 / NFL Net" from the schedule into the right channel on *your* playlist, with a confidence score; corrections are remembered. One-click **Watch** on every game. |
+| **Live score bug** | When the tuned channel is carrying a live game, a score bug overlays the player. |
+| **Fantasy Live (Sleeper)** | Username only (public read-only API). Live matchup board, which games your matchup will be decided in, **red-zone alerts for your starters**, "Multiview my games". |
+| **Picks & Odds** | Odds board (spread / moneyline / total, reference lines from ESPN). Pick'em between you and your brother with units, auto-grading at the final whistle, live "covering / sweating", head-to-head view, leaderboard + streaks. No real money, no sportsbook links. |
+| **Spoiler shield** | Hide every score app-wide until you hit Reveal — for watching on delay. |
+| **Multiview** | 2×2 or 1+3, audio follows the focused tile, "fill with best live games". |
+| **Guide** | Virtualized EPG with a true time axis, 30/60/120-min zoom, now line, 8-day picker, sports filter, program drawer. |
+| **Planner** | Day timeline with drag/resize, conflict lanes + warnings, reminders, notes, agenda view, **rules** ("every Jets game", "every SportsCenter", "reserve 7–10 PM"). |
+| **Player** | hls.js + mpegts.js (raw `.ts` IPTV), auto-retry & playlist fallback URLs, quality / audio / subtitle menus, PiP, theater, fullscreen, stream-health panel, last-channel, channel-number entry, desktop mini-player (always on top). |
+| **Everything else** | Global search (Ctrl K), favorites, channel reorder/hide, parental PIN locks, XMLTV import + manual mapping, settings backup/restore, compact mode, accent colors, phone layout, live score ticker. |
 
-## Demo data
-`src/data/demo.ts` contains synthetic EPG/sports listings and public HLS test streams. Replace through provider adapters in production.
+Press **?** in the app for keyboard shortcuts.
+
+## Data sources
+
+- **Scores, schedules, broadcasters, odds:** ESPN's public scoreboard endpoints (no key, browser-friendly). Wrapped behind a `SportsProvider` interface so a licensed feed can replace it.
+- **Fantasy:** Sleeper public API (`FantasyProvider`). Players list is cached for 24h as Sleeper requests.
+- **TV:** your M3U/M3U8 playlist (URL or file) and XMLTV guide (URL or file, `.xml.gz` OK). Playlist header `url-tvg` is picked up automatically.
+
+Everything is stored locally (IndexedDB). Nothing is uploaded.
+
+## Quick start
+
+```bash
+npm install
+npm run dev        # http://localhost:1420
+```
+
+See [BUILD.md](BUILD.md) for tests, web deploy and desktop releases.
+
+> **Browser vs desktop:** browsers require playlist/stream hosts to send CORS headers; most IPTV providers don't. The desktop app routes playlist, guide and HLS requests through native HTTP, so it works with any provider.

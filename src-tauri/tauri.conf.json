@@ -1,1 +1,38 @@
-{"$schema":"https://schema.tauri.app/config/2","productName":"Dial TV","version":"0.1.0","identifier":"com.dialtv.player","build":{"beforeDevCommand":"npm run dev","devUrl":"http://localhost:1420","beforeBuildCommand":"npm run build","frontendDist":"../dist"},"app":{"windows":[{"title":"Dial TV","width":1440,"height":900,"minWidth":900,"minHeight":600}],"security":{"csp":null}},"bundle":{"active":true,"targets":"all"}}
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Dial TV",
+  "version": "0.2.0",
+  "identifier": "com.dialtv.player",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      { "label": "main", "title": "Dial TV", "width": 1440, "height": 900, "minWidth": 380, "minHeight": 300, "backgroundColor": "#080a0f" }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src": "'self' https://fonts.gstatic.com",
+        "img-src": "'self' data: blob: https: http:",
+        "media-src": "'self' blob: https: http:",
+        "connect-src": "'self' ipc: http://ipc.localhost https: http:",
+        "worker-src": "'self' blob:"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Entertainment",
+    "shortDescription": "Personal TV & sports command center",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "macOS": { "minimumSystemVersion": "11.0" },
+    "windows": { "webviewInstallMode": { "type": "downloadBootstrapper" } }
+  }
+}

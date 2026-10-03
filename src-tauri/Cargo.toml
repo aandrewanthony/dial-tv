@@ -1,15 +1,20 @@
 [package]
-name="dial-tv"
-version="0.1.0"
-description="Dial TV IPTV command center"
-authors=["Dial TV"]
-edition="2021"
+name = "dial-tv"
+version = "0.2.0"
+description = "Dial TV — personal TV & sports command center"
+authors = ["Dial TV"]
+edition = "2021"
+
 [lib]
-name="dial_tv_lib"
-crate-type=["staticlib","cdylib","rlib"]
+name = "dial_tv_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
-tauri-build={version="2",features=[]}
+tauri-build = { version = "2", features = [] }
+
 [dependencies]
-tauri={version="2",features=[]}
-serde={version="1",features=["derive"]}
-serde_json="1"
+tauri = { version = "2", features = [] }
+tauri-plugin-http = "2"
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

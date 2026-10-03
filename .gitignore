@@ -3,3 +3,7 @@ dist
 src-tauri/target
 .DS_Store
 *.log
+src-tauri/gen
+test-results
+playwright-report
+public/__test

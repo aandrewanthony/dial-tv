@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="espn.us"><display-name>ESPN</display-name></channel>
+  <channel id="cbs.us"><display-name>CBS</display-name></channel>
+  <channel id="unmapped.us"><display-name>Some Other Channel</display-name></channel>
+  <programme start="20261003080000 -0400" stop="20261003120000 -0400" channel="espn.us"><title>College GameDay</title><category>Sports</category><new/></programme>
+  <programme start="20261003120000 -0400" stop="20261003153000 -0400" channel="espn.us"><title>College Football: Notre Dame at North Carolina</title><category>Sports</category></programme>
+  <programme start="20261003153000 -0400" channel="espn.us"><title>SportsCenter</title><category>Sports</category></programme>
+  <programme start="20261003190000 -0400" stop="20261003200000 -0400" channel="espn.us"><title>Postgame</title><category>Sports</category></programme>
+  <programme start="20261003090000 -0400" stop="20261003120000 -0400" channel="cbs.us"><title>CBS Saturday Morning</title><category>News</category></programme>
+  <programme start="20261003120000 -0400" stop="20261003150000 -0400" channel="cbs.us"><title>SEC on CBS</title><category>Football</category></programme>
+</tv>

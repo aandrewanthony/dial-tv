@@ -1,75 +1,53 @@
 # CLAUDE HANDOFF — Dial TV
 
 ## Mission
-Take this functioning V0.1 base and turn it into a production-grade personal TV command center for Web, Windows and macOS. Preserve a shared React/TypeScript UI. Do not add piracy-oriented discovery, DRM circumvention, credential bypass, or unauthorized restreaming.
+Personal TV + sports command center for Web, Windows and macOS with one shared React/TypeScript UI. Primary user is a sports fan. No piracy-oriented discovery, DRM circumvention, credential bypass, or restreaming. Picks are a just-for-fun tracker — no real-money wagering, no sportsbook deep links.
 
-## Current architecture
-- React + TypeScript + Vite frontend.
-- HLS playback: `src/components/Player.tsx` (hls.js with native-HLS fallback).
-- Demo channels/programs/sports: `src/data/demo.ts`.
-- Basic M3U parser: `src/lib/m3u.ts`.
-- UI and DnD scheduler: `src/main.tsx`.
-- Tauri 2 desktop shell: `src-tauri/`.
-- LocalStorage persists schedule.
+## Architecture (v0.2)
+```
+src/
+  app/          App shell, hash router, global keys, ticker, toasts, PIN gate
+  pages/        Home (Game Day), Watch, Guide, Sports, Fantasy, Picks, Multiview, Schedule, Settings
+  components/   GameCard + ScoreBug, SearchPalette, TeamPicker, ChannelPicker, ui primitives
+  player/       Player (hls.js / mpegts.js / native), TauriLoader (native-HTTP hls loader)
+  providers/    types (Playlist/Epg/Sports/Fantasy interfaces), demo (seeded fixture guide), remote (M3U/XMLTV), espn, sleeper
+  hooks/        useEngine (polling, clutch/red-zone/reminder alerts, pick grading, rules), useSports (watchability ranking)
+  store/        app (zustand, persisted state + migrations), fantasy, db (IndexedDB kv)
+  lib/          m3u, xmltv, url (validation/redaction), channelMatch (Smart Sports Mapper), scheduler, sports (clutch, odds, grading), net, notify, seed
+tests/unit      Vitest (36)   tests/e2e  Playwright (7, network mocked)   tests/fixtures
+src-tauri/      Tauri 2 shell: http + notification plugins, capabilities, CSP
+.github/        CI (typecheck/unit/e2e/build) + tagged desktop release (tauri-action)
+```
 
-## Immediate engineering backlog (P0)
-1. Refactor `main.tsx` into route/page/components and state stores.
-2. Add robust M3U parser: tvg-id/name/logo, group-title, headers/options, malformed-entry handling.
-3. Add XMLTV parser + channel mapping UI. Normalize all schedule dates/timezones.
-4. Add provider interfaces: `PlaylistProvider`, `EpgProvider`, `SportsProvider` and mock implementations.
-5. Replace synthetic time-relative demo guide with deterministic seeded fixture generation.
-6. Scheduler: timeline/calendar views, draggable/resizable blocks, collision detection, overlap/conflict warnings, edit modal, notes, reminders, recurring team/show rules.
-7. Guide: virtualized rows, true time-axis sizing, 30/60/120 min zoom, current-time line, date picker, Now button, program details drawer.
-8. Player: loading/error/retry states, quality/audio/subtitle tracks, keyboard shortcuts, PiP, theater mode, last-channel resume, next/previous channel, stream diagnostics.
-9. Persistence: IndexedDB on web and durable Tauri store/SQLite on desktop; migration/version layer.
-10. Tests: parser fixtures, scheduler collision tests, component smoke tests and Playwright flows.
+## Done (P0)
+- [x] main.tsx split into routes/pages/components/stores
+- [x] Robust M3U (attrs incl. quoted commas, tvg-chno, EXTGRP, EXTVLCOPT, Kodi pipe headers, BOM, dupes, unsafe URL rejection, header url-tvg)
+- [x] XMLTV parser (tz offsets → UTC, open-ended programmes, sports/new flags, gz) + tvg-id/name/manual mapping UI
+- [x] Provider interfaces + ESPN, Sleeper, demo, remote implementations
+- [x] Deterministic seeded demo guide
+- [x] Scheduler: day timeline, drag/resize (15-min snap), lanes, conflicts, edit modal, notes, reminders, team/title/block rules
+- [x] Guide: virtualized rows, true time axis, 30/60/120 zoom, now line, day picker, Now, details drawer
+- [x] Player: loading/error/retry, fallback URLs, quality/audio/subs, keys, PiP, theater, last channel, ch up/down, number entry, stream health
+- [x] Persistence: IndexedDB (web + Tauri webview), versioned schema + migrate(), v0.1 localStorage import, flush on pagehide
+- [x] Tests: parser fixtures, scheduler collisions, mapper, grading, adapters, migrations; Playwright flows
 
-## Product backlog (P1)
-- Favorites and custom channel groups.
-- Hide/reorder channels by drag/drop.
-- Unified global search for channel/program/team/league.
-- Sports: API-backed schedule adapters, league/team favorites, live/upcoming/final state, venue/score metadata when licensed source supplies it, channel mapping.
-- “Tonight” dashboard: selected live events + scheduled programs in chronological order.
-- Multiview: 2x2 streams (subject to machine/browser limits).
-- Mini player / always-on-top desktop window.
-- Desktop native file picker and protocol handler.
-- Import/export settings bundle.
-- Theme/branding settings and compact/dense guide modes.
-- Multiple playlists/accounts with per-source enable/disable.
-- Parental controls and channel locks.
-- Notifications for scheduled programs on desktop; optional browser notifications on web.
+## Done (P1 + sports features)
+Favorites, reorder/hide (dnd), global search, sports hub with live/upcoming/final, favorite teams, Game Day countdowns, multiview 2×2 / 1+3, desktop mini-player (always on top), settings import/export, compact mode + accent theme, parental PIN locks, notifications (web + Tauri), clutch alerts + auto-switch, Smart Sports Mapper, live score bug, watchability ranking, Sleeper fantasy (stakes, red-zone alerts), picks/odds tracker, spoiler shield, score ticker.
 
-## Strong feature suggestions
-### Smart Sports Mapper
-When sports API event metadata says a game is on a named network, resolve that network against playlist channels using normalized aliases. Show confidence and let user correct mapping. Remember corrections locally.
+## Not done / next
+- **Remote Control mode** (phone → desktop over LAN WebSocket with pairing). Needs a small Rust WebSocket server in `src-tauri` + a `/remote` route.
+- **Multiple fantasy platforms** (ESPN private leagues need cookies; Yahoo needs OAuth — do via a server-side or Tauri-side token store, never localStorage).
+- **Win probability chart** — `providers/espn.ts#winProbability` is implemented but not yet charted on the game card.
+- **Xtream Codes login** as a source type (player_api.php) — today use the provider's M3U URL.
+- **Personal Linear Channel** (local/VOD pseudo-channel) from the original backlog.
+- **Windows code signing** + Tauri updater; macOS secrets are wired in `release.yml`.
+- Secrets: playlist URLs can embed provider credentials and are stored in IndexedDB. Move to OS keychain via a Tauri plugin (e.g. `tauri-plugin-stronghold` / keyring) for desktop.
 
-### Personal Linear Channel
-Allow the user to drag VOD/local media/program links into a timeline and create a personal pseudo-channel. Do not restream copyrighted media; playback stays local/direct from authorized sources.
-
-### Game Day Mode
-A dashboard of favorite-team events, start countdowns, mapped channels, and one-click tune. Optional multiview when games overlap.
-
-### Schedule Rules
-Examples: “Add every Knicks game,” “add new episodes of X,” or “reserve 7–10 PM for favorites.” Rules create schedule entries; they do not record content unless a lawful recording backend is later configured.
-
-### Remote Control Mode
-A phone-sized web route can control a desktop instance over an authenticated local-network/WebSocket pairing flow: channel up/down, guide, volume, play/pause, favorites.
-
-### Stream Health
-Expose resolution, bitrate, dropped frames, buffer, codec and latency. Add automatic fallback URLs if supplied by the playlist owner.
-
-## Data APIs
-Do not hard-code one vendor. Implement adapters. Candidate categories are licensed sports schedule APIs, official league feeds where terms permit, and XMLTV/EPG data supplied by the user/provider. Keep API secrets server-side for the web deployment; Tauri secrets should use OS credential storage where feasible.
-
-## Desktop release work
-- Add application icons and metadata.
-- Windows CI runner: build MSI/NSIS as supported by Tauri; code-sign with user certificate.
-- macOS CI runner: universal or per-arch build, sign with Developer ID, notarize and staple; produce DMG/app bundle.
-- GitHub Actions release workflow for tagged builds.
-- Auto-updater only after signing infrastructure exists.
+## Constraints learned
+- ESPN `/teams` lacks CORS → team lists come from `/standings`. Scoreboard date *ranges* return nothing → one request per day.
+- Chromium now plays HLS natively; we still prefer hls.js (track menus + stats), native only when MSE is missing (iOS).
+- hls.js already retries manifest loads; treat a fatal manifest error as final (→ fallback URL / error UI).
+- The dev machine enforces Windows Application Control: the Tauri CLI native binary is blocked locally, so desktop builds run in CI.
 
 ## Security
-Treat playlists/EPG as untrusted input. Never render provider HTML. Validate URLs/protocols. Avoid logging credentials embedded in playlist URLs. Store secrets outside normal localStorage. Add CSP once required media/API origins are known.
-
-## UX direction
-Keep the existing dark broadcast-control-room aesthetic: restrained, dense, keyboard-friendly, fast. The Guide and Sports pages should feel closer to a premium television OS than a generic web dashboard.
+Playlists/EPG are untrusted: http(s)-only URLs, no provider HTML rendered, credentials redacted in UI/stats (`lib/url.ts#redactUrl`), CSP set in `tauri.conf.json`, Tauri HTTP scope limited to http(s).

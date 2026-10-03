@@ -1,0 +1,14 @@
+#EXTM3U url-tvg="http://localhost:1420/__test/guide.xml"
+#EXTINF:-1 tvg-id="espn.us" tvg-name="ESPN" tvg-logo="" group-title="US| Sports",US| ESPN HD
+https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
+#EXTINF:-1 tvg-id="espn2.us" group-title="US| Sports",US| ESPN 2
+https://test-streams.mux.dev/test_001/stream.m3u8
+#EXTINF:-1 tvg-id="fox.us" group-title="US| Locals",FOX (WNYW) New York
+https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8
+#EXTINF:-1 tvg-id="cbs.us" group-title="US| Locals",CBS East HD
+https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8
+#EXTINF:-1 tvg-id="nflnet.us" group-title="US| Sports",NFL Network
+https://this-host-does-not-exist.invalid/stream.m3u8
+#EXTINF:-1 group-title="Broken",Missing URL entry
+#EXTINF:-1 group-title="Broken",Bad protocol
+javascript:alert(1)
