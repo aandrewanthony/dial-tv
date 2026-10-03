@@ -48,23 +48,11 @@ test('navigates every page without runtime errors', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('sports page shows mocked games with odds and the ticker', async ({ page }) => {
+test('sports page shows mocked games with odds', async ({ page }) => {
   await page.goto('/#/sports');
   await expect(page.locator('.gameCard').filter({ hasText: 'Steelers' })).toContainText('Final', { timeout: 10_000 });
   await page.getByRole('button', { name: 'Tomorrow' }).click();
   await expect(page.locator('.gameCard').filter({ hasText: 'Colts' })).toContainText('IND -4.5');
-  await expect(page.locator('.bottomLine')).toContainText('PIT 24 · CLE 27');
-});
-
-test.skip('pick flow (removed: replaced by Bets): make a spread pick and see it in the ledger and leaderboard', async ({ page }) => {
-  await page.goto('/#/picks');
-  const btn = page.locator('.oddBtn', { hasText: '-4.5' }).first();
-  await btn.click();
-  await expect(btn).toHaveClass(/on/);
-  await expect(page.locator('.ledger')).toContainText('IND -4.5');
-  await expect(page.locator('.lb').first()).toContainText('1 open');
-  await page.reload();
-  await expect(page.locator('.ledger')).toContainText('IND -4.5'); // persisted
 });
 
 test('schedule: create a custom block, it persists, conflicts are flagged', async ({ page }) => {

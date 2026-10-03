@@ -115,7 +115,7 @@ describe('dedupeChannelNumbers', () => {
 describe('persistence v4 and hydrate', () => {
   it('migrates v3 to v4 with dismissedEpgUrls', () => {
     const m = migrate({ version: 3, playlists: [] });
-    expect(SCHEMA_VERSION).toBe(4);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(4);
     expect(m.dismissedEpgUrls).toEqual([]);
     expect(migrate({ version: 4, dismissedEpgUrls: ['u'] }).dismissedEpgUrls).toEqual(['u']);
   });

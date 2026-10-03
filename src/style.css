@@ -63,8 +63,8 @@ select.field { flex: 1; }
 .inlineToggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-left: 6px; }
 
 /* Shell */
-.app { display: grid; grid-template-columns: 200px 1fr; min-height: 100vh; padding-bottom: 38px; }
-.nav { position: fixed; top: 0; bottom: 38px; width: 200px; padding: 24px 14px; border-right: 1px solid var(--line); background: var(--bg2); display: flex; flex-direction: column; gap: 2px; z-index: 5; }
+.app { display: grid; grid-template-columns: 200px 1fr; min-height: 100vh; }
+.nav { position: fixed; top: 0; bottom: 0; width: 200px; padding: 24px 14px; border-right: 1px solid var(--line); background: var(--bg2); display: flex; flex-direction: column; gap: 2px; z-index: 5; }
 .brand { font: 700 21px var(--mono); margin: 0 10px 30px; display: flex; gap: 8px; align-items: center; }
 .brand svg { width: 22px; height: 22px; color: var(--accent); }
 .brand span { color: #8a8f9d; }
@@ -95,21 +95,9 @@ h2 { margin: 0 0 6px; font-size: 18px; }
 .empty > svg { width: 28px; height: 28px; }
 .guideBar { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
 
-/* Ticker */
-.bottomLine { position: fixed; left: 0; right: 0; bottom: 0; height: 38px; background: #05070a; border-top: 1px solid var(--line); display: flex; z-index: 20; font: 700 12px var(--mono); }
-.tickLabel { background: var(--accent); color: #fff; padding: 0 14px; display: grid; place-items: center; letter-spacing: .12em; font-size: 10px; }
-.tickTrack { overflow: hidden; flex: 1; position: relative; }
-.tickInner { display: inline-flex; white-space: nowrap; animation: tick linear infinite; height: 100%; align-items: center; }
-.bottomLine:hover .tickInner { animation-play-state: paused; }
-@keyframes tick { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-.tick { padding: 0 18px; border: 0; border-right: 1px solid #1a1f28; background: none; height: 100%; font-weight: inherit; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; color: #d6d9df; }
-.tick i { font-style: normal; color: var(--dim); font-size: 10px; }
-.tick em { font-style: normal; color: var(--muted); font-weight: 400; }
-.tick.in em { color: var(--accent); }
-.tick.clutch { background: linear-gradient(90deg, #3a1010, transparent); }
 
 /* Toasts */
-.toasts { position: fixed; right: 18px; bottom: 52px; display: flex; flex-direction: column; gap: 8px; z-index: 60; width: min(400px, calc(100vw - 32px)); }
+.toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 60; width: min(400px, calc(100vw - 32px)); }
 .toast { background: #151a23; border: 1px solid var(--line2); border-left: 3px solid #6b7280; border-radius: 10px; padding: 11px 10px 11px 12px; display: flex; gap: 10px; align-items: center; box-shadow: 0 10px 30px #0008; animation: pop .2s ease-out; }
 .toast.clutch { border-left-color: var(--accent); }
 .toast.redzone { border-left-color: var(--warn); }
@@ -482,8 +470,8 @@ h2 { margin: 0 0 6px; font-size: 18px; }
   .addSide { max-height: none; }
 }
 @media (max-width: 850px) {
-  .app { display: block; padding-bottom: 100px; }
-  .nav { top: auto; bottom: 38px; width: 100%; height: 60px; flex-direction: row; padding: 4px; border-right: 0; border-top: 1px solid var(--line); overflow-x: auto; gap: 0; }
+  .app { display: block; padding-bottom: 64px; }
+  .nav { top: auto; bottom: 0; width: 100%; height: 60px; flex-direction: row; padding: 4px; border-right: 0; border-top: 1px solid var(--line); overflow-x: auto; gap: 0; }
   .brand, .navBottom { display: none; }
   .nav > button { flex-direction: column; gap: 2px; font-size: 8.5px; padding: 6px 8px; min-width: 64px; justify-content: center; letter-spacing: .04em; }
   .badge { position: absolute; margin: 0; transform: translate(14px, -4px); }
@@ -504,7 +492,7 @@ h2 { margin: 0 0 6px; font-size: 18px; }
   .nextUp { flex-direction: column; align-items: stretch; }
   .nuCount { align-items: flex-start; }
   .matchHead b { font-size: 24px; }
-  .toasts { right: 16px; bottom: 108px; }
+  .toasts { right: 16px; bottom: 72px; }
   .grid { height: calc(100vh - 330px); }
   .timeline { height: 60vh; }
   .keys { grid-template-columns: 1fr; }
@@ -526,7 +514,6 @@ h2 { margin: 0 0 6px; font-size: 18px; }
 .miniExit { position: fixed; top: 8px; right: 8px; z-index: 40; display: flex; gap: 6px; align-items: center; border: 1px solid var(--line2); background: #0b0e14d9; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 700; opacity: .25; transition: opacity .2s; }
 .miniExit:hover { opacity: 1; }
 .app.theater { padding-bottom: 0; }
-.app.theater .bottomLine { display: none; }
 
 .moreBtn { grid-column: 1 / -1; border: 1px dashed var(--line2); background: none; border-radius: 10px; padding: 12px; color: var(--muted); font-weight: 700; }
 .moreBtn:hover { color: var(--text); border-color: #4b5466; }
@@ -541,7 +528,6 @@ h2 { margin: 0 0 6px; font-size: 18px; }
 .lockedScreen { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; background: #07090d; color: var(--muted); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
 .lockedScreen svg { width: 34px; height: 34px; }
 .screen > .lockedScreen { position: relative; height: 100%; min-height: 200px; }
-.tick:focus-visible, .block:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .storageBanner { margin: 0 0 14px; }
 
 /* TV / Sports section switch */
@@ -551,3 +537,389 @@ h2 { margin: 0 0 6px; font-size: 18px; }
 .sectionSwitch svg { width: 15px; height: 15px; }
 .nav > button.navGap { margin-top: 14px; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; padding-top: 14px; }
 @media (max-width: 850px) { .sectionSwitch { margin: 0 4px 0 0; grid-template-columns: 1fr; min-width: 70px; } .sectionSwitch button { padding: 4px; font-size: 8px; } .nav > button.navGap { margin-top: 0; border-top: 0; padding-top: 6px; } }
+
+/* ===================== TV: Movies & Series, guide overlay, banner, My Channels ===================== */
+:root { --tvpv: min(460px, 38vw); }
+
+/* Library */
+.tvLibrary .guideBar { align-items: center; }
+.tvLibrary .chips svg { width: 14px; height: 14px; }
+.tvFilters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.tvSearch { position: relative; display: flex; align-items: center; flex: 0 1 240px; }
+.tvSearch > svg { position: absolute; left: 10px; color: var(--dim); pointer-events: none; }
+.tvSearch .field.small { flex: 1; padding-left: 32px; }
+.tvSearch .icon { position: absolute; right: 2px; }
+.tvFilters select.field.small { flex: 0 1 170px; }
+.tvRowSection { margin: 4px 0 22px; }
+.tvRowTitle { display: flex; align-items: center; gap: 8px; font: 700 11px var(--mono); letter-spacing: .14em; color: var(--muted); text-transform: uppercase; margin: 0 0 10px; }
+.tvRowTitle svg { color: var(--accent); }
+.tvRow { display: grid; grid-auto-flow: column; grid-auto-columns: 150px; gap: 14px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+.tvVGrid { width: 100%; }
+.tvCard { display: flex; flex-direction: column; gap: 4px; width: 100%; border: 0; background: none; padding: 0; text-align: left; color: var(--text); min-width: 0; }
+.tvCard b { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
+.tvCard small { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tvCard:hover .tvPoster, .tvCard:focus-visible .tvPoster { border-color: var(--accent); transform: translateY(-2px); }
+.tvCard:focus-visible { outline: none; }
+.tvPoster { position: relative; aspect-ratio: 2/3; width: 100%; border-radius: 9px; overflow: hidden; border: 1px solid var(--line2); background: #0d1118; transition: transform .12s, border-color .12s; }
+.tvPoster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tvPosterFallback { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding: 12px;
+  background: linear-gradient(160deg, hsl(var(--h) 45% 26%), hsl(calc(var(--h) + 40) 40% 10%) 70%, #07090d); }
+.tvPosterFallback svg { position: absolute; top: 12px; left: 12px; width: 18px; height: 18px; color: #ffffff80; }
+.tvPosterFallback b { font-size: 15px; line-height: 1.15; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 1px 8px #0008; }
+.tvPosterFallback small { font: 700 10px var(--mono); color: #ffffffb0; letter-spacing: .08em; }
+.tvPosterBar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: #000a; }
+.tvPosterBar i { display: block; height: 100%; background: var(--accent); }
+.tvPosterBadge, .tvPosterFav { position: absolute; top: 7px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: #000b; }
+.tvPosterBadge { right: 7px; color: var(--good); }
+.tvPosterFav { left: 7px; color: var(--accent); }
+.tvPosterBadge svg, .tvPosterFav svg { width: 13px; height: 13px; }
+
+/* Details */
+.tvDetails { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; align-items: start; }
+.tvDetails > .tvPoster { position: sticky; top: 0; }
+.tvDetailsBody { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.tvDetailsMeta { margin: 0; color: var(--muted); font: 700 11px var(--mono); letter-spacing: .04em; }
+.tvResume small { color: var(--muted); font-size: 11px; }
+.tvWatched { margin: 0; color: var(--good); display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.tvSeasons { margin-top: 4px; }
+.tvEpisodes { display: flex; flex-direction: column; gap: 4px; max-height: 46vh; overflow: auto; padding-right: 4px; }
+.tvEpisode { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; border: 1px solid transparent; }
+.tvEpisode:hover { background: #151a23; }
+.tvEpisode.next { border-color: #3a4357; background: #131924; }
+.tvEpisodePlay { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line2); background: var(--panel2); display: grid; place-items: center; flex: none; }
+.tvEpisodePlay:hover { background: var(--accent); border-color: var(--accent); }
+.tvEpisodePlay svg { width: 13px; height: 13px; }
+.tvEpisodeText { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tvEpisodeText b { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tvOk { color: var(--good); }
+
+/* VOD player view */
+.tvVodView { display: flex; flex-direction: column; gap: 12px; }
+.tvVodBar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tvVodBar > button:not(.ghost) { display: inline-flex; align-items: center; gap: 7px; border-radius: 8px; padding: 8px 13px; font-weight: 700; font-size: 12.5px; border: 1px solid var(--line2); background: var(--panel2); }
+.tvVodTitle { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.tvVodTitle b { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tvVodTitle small { color: var(--muted); font-size: 11.5px; }
+.tvVodScreen { border-radius: 12px; overflow: hidden; border: 1px solid var(--line); max-height: calc(100vh - 210px); width: 100%; }
+.app.theater .tvVodScreen { max-height: calc(100vh - 90px); }
+.tvNextUp { position: absolute; right: 18px; bottom: 70px; z-index: 5; background: #0b0e14ee; border: 1px solid var(--line2); border-left: 3px solid var(--accent); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; max-width: 340px; }
+.tvNextUp small { font: 700 10px var(--mono); letter-spacing: .16em; color: var(--accent); }
+.tvNextUp span { color: var(--muted); font-size: 12px; }
+.tvNextUp .row { margin-top: 6px; }
+.tvPlaceholder { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; text-align: center; padding: 20px; background: radial-gradient(circle at 50% 40%, #151b26, #05070a 70%); color: var(--muted); }
+.screen > .tvPlaceholder { position: relative; height: 100%; min-height: 200px; }
+.tvPlaceholder > svg { width: 30px; height: 30px; color: var(--accent); }
+.tvPlaceholder b { color: var(--text); font-size: 15px; }
+.tvPlaceholder button { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line2); background: var(--panel2); border-radius: 8px; padding: 7px 12px; font-weight: 700; font-size: 12px; }
+
+/* Cable info banner (inside the player) */
+.tvBanner { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); width: min(820px, calc(100% - 28px)); z-index: 6; pointer-events: none;
+  background: linear-gradient(180deg, #121722f2, #0a0d13f5); border: 1px solid var(--line2); border-top: 3px solid var(--accent); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 18px 40px #000a; animation: tvBannerIn .18s ease-out; }
+@keyframes tvBannerIn { from { opacity: 0; transform: translate(-50%, 10px); } }
+.tvBannerCh { display: flex; align-items: center; gap: 12px; }
+.tvBannerNum { font: 700 30px var(--mono); color: var(--accent); min-width: 64px; }
+.tvBannerName { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tvBannerName b { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tvBannerName small { color: var(--muted); font-size: 11px; }
+.tvBannerClock { font: 700 15px var(--mono); color: #c9cdd4; }
+.tvBannerRows { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+.tvBannerRow { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto auto auto; gap: 12px; align-items: center; }
+.tvBannerRow.next { grid-template-columns: 48px minmax(0, 1fr) auto; color: #aab0bb; }
+.tvBannerRow small { font: 700 9.5px var(--mono); letter-spacing: .16em; color: var(--dim); }
+.tvBannerRow b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.tvBannerRow b em { font-style: normal; color: var(--muted); font-weight: 400; }
+.tvBannerRow .bar { width: 120px; margin: 0; }
+.tvBannerTimes, .tvBannerLeft { font: 400 11px var(--mono); color: var(--muted); white-space: nowrap; }
+.tvBannerLeft { color: #c9cdd4; }
+.mvTile .tvBanner { display: none; }
+
+/* Guide overlay over Live TV: the tuned channel shrinks into a corner preview */
+.tvGuide { position: fixed; inset: 0; z-index: 41; display: flex; flex-direction: column; background: linear-gradient(180deg, #05070bf7 0%, #080a0ffa 40%); backdrop-filter: blur(6px); animation: tvGuideUp .22s ease-out; }
+@keyframes tvGuideUp { from { transform: translateY(40px); opacity: 0; } }
+.watch.tvGuideOpen .screen { position: fixed; top: 18px; left: 18px; width: var(--tvpv); height: auto; aspect-ratio: 16/9; z-index: 42; border-radius: 10px; overflow: hidden; border: 1px solid var(--line2); box-shadow: 0 12px 40px #000c; max-height: none; }
+.watch.tvGuideOpen .screen .tvBanner { display: none; }
+.tvGuideTop { position: relative; display: flex; min-height: calc(var(--tvpv) * 9 / 16 + 36px); padding: 18px 56px 14px calc(var(--tvpv) + 40px); }
+.tvGuideInfo { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tvGuideInfoCh { display: flex; align-items: center; gap: 10px; font: 700 12px var(--mono); color: var(--muted); }
+.tvGuideInfoCh b { color: var(--accent); font-size: 16px; }
+.tvGuideInfoCh span { color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; }
+.tvGuideInfo h2 { margin: 2px 0 0; font-size: 24px; line-height: 1.2; }
+.tvGuideWhen { margin: 0; color: #b6bcc7; font-size: 13px; }
+.tvGuideDesc { margin: 0; color: var(--muted); font-size: 13px; max-width: 760px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tvGuideKeys { margin: auto 0 0; color: var(--dim); font-size: 11px; }
+.tvGuideClose { position: absolute; top: 12px; right: 12px; }
+.tvGuideGrid { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0 18px 12px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #0b0e13; }
+.tvGuideHead { display: flex; height: 34px; flex: none; background: #0e1118; border-bottom: 1px solid var(--line); }
+.tvGuideCorner { width: 220px; flex: none; display: flex; align-items: center; padding: 0 14px; font: 700 10px var(--mono); color: var(--accent); letter-spacing: .1em; text-transform: uppercase; border-right: 1px solid var(--line); }
+.tvGuideHead .tvGuideTrack span { position: absolute; top: 0; height: 34px; display: flex; align-items: center; padding-left: 8px; font: 700 10.5px var(--mono); color: #7b8291; border-left: 1px solid #1a1f28; }
+.tvGuideTrack { position: relative; flex: 1; min-width: 0; }
+.tvGuideRows { flex: 1; overflow: auto; position: relative; scrollbar-width: thin; }
+.tvGuideRow { position: absolute; left: 0; right: 0; display: flex; border-bottom: 1px solid #171c25; }
+.tvGuideRow.on { background: #121823; }
+.tvGuideCh { width: 220px; flex: none; display: flex; align-items: center; gap: 9px; padding: 0 10px; border: 0; border-right: 1px solid var(--line); background: #0e1118; text-align: left; min-width: 0; }
+.tvGuideCh b { font: 700 11px var(--mono); color: var(--dim); min-width: 34px; }
+.tvGuideCh span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; font-weight: 700; }
+.tvGuideRow.on .tvGuideCh { background: #161c28; box-shadow: inset 3px 0 0 var(--accent); }
+.tvGuideRow.tuned .tvGuideCh b { color: var(--accent); }
+.tvGuideProg { position: absolute; top: 4px; bottom: 4px; border: 1px solid #252c38; background: #141922; border-radius: 6px; padding: 5px 8px; text-align: left; overflow: hidden; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 1px; line-height: 1.25; min-width: 0; color: var(--text); }
+.tvGuideProg b { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.tvGuideProg span { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.tvGuideProg.live { background: #1a2130; border-color: #333c50; }
+.tvGuideProg.empty { background: repeating-linear-gradient(135deg, #10141b, #10141b 8px, #0e1218 8px, #0e1218 16px); }
+.tvGuideProg:hover { border-color: #4b5466; }
+.tvGuideProg.hi { background: #eceef2; border-color: #eceef2; color: #0b0e13; box-shadow: 0 0 0 2px var(--accent); }
+.tvGuideProg.hi span { color: #444b58; }
+.tvGuideProg.hi b { color: #0b0e13; }
+.tvGuideProg.empty b { color: var(--muted); font-weight: 600; }
+.tvGuideProg.empty.hi b { color: #0b0e13; }
+.tvGuideNow { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); z-index: 1; pointer-events: none; opacity: .8; }
+
+/* Personal channel marks / Live TV */
+.tvPMark { color: #fff; text-shadow: 0 1px 4px #0006; }
+.now .row .tvGuideBtn { border-color: var(--accent); }
+
+/* My Channels */
+.tvLead { margin: 0; max-width: 640px; }
+.tvPGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.tvPCard { background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--pc, var(--accent)); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.tvPHead { display: flex; gap: 12px; align-items: center; }
+.tvPHead > div { display: flex; flex-direction: column; min-width: 0; }
+.tvPHead small { font: 700 11px var(--mono); color: var(--pc, var(--accent)); }
+.tvPHead b { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tvPNow .tvLbl { font: 700 9px var(--mono); color: var(--dim); letter-spacing: .16em; }
+.tvPCard .row { margin-top: auto; }
+.tvHelp p { margin: 0 0 10px; color: #c3c8d1; }
+.tvEditor { display: flex; flex-direction: column; gap: 12px; }
+.tvEditorTop { display: grid; grid-template-columns: minmax(0, 2fr) 110px; gap: 12px; }
+.tvEditorTop .field { margin-top: 0; width: 100%; }
+.tvEditorTop .label { grid-column: 1 / -1; }
+.tvSwatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.tvSwatches button { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; padding: 0; }
+.tvSwatches button.on { border-color: #fff; box-shadow: 0 0 0 2px #0008 inset; }
+.tvEditorCols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+.tvEditorCols h4 { margin: 4px 0 8px; font-size: 13px; }
+.tvLineup, .tvAddList { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow: auto; padding-right: 4px; }
+.tvLineupRow, .tvAddRow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: #0e1219; }
+.tvLineupRow > div, .tvAddRow > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tvLineupRow b, .tvAddRow b { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tvLineupRow small, .tvAddRow small { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tvLineupKind svg, .tvAddRow > svg { color: var(--dim); }
+.tvLineupRow .icon { padding: 4px; }
+.tvAddRow > button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line2); background: var(--panel2); border-radius: 7px; padding: 5px 9px; font-weight: 700; font-size: 11.5px; white-space: nowrap; }
+.tvAddRow > button svg { width: 13px; height: 13px; }
+.tvAdd { display: flex; flex-direction: column; gap: 8px; }
+.tvAdd > .field { margin-top: 0; width: 100%; flex: none; }
+.tvPreviewList { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.tvPreviewList div { display: flex; gap: 10px; }
+.tvPreviewList time { font: 700 11px var(--mono); color: var(--accent); min-width: 66px; }
+.tvPreviewList span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #c3c8d1; }
+.tvEditorFoot { border-top: 1px solid var(--line); padding-top: 12px; }
+
+@media (max-width: 850px) {
+  :root { --tvpv: min(300px, 52vw); }
+  .tvDetails { grid-template-columns: 1fr; }
+  .tvDetails > .tvPoster { position: static; width: 140px; }
+  .tvEditorCols { grid-template-columns: 1fr; }
+  .tvGuide { inset: 0 0 98px 0; }
+  .tvGuideTop { padding: 12px 44px 10px calc(var(--tvpv) + 28px); }
+  .watch.tvGuideOpen .screen { top: 12px; left: 12px; }
+  .tvGuideInfo h2 { font-size: 16px; }
+  .tvGuideDesc, .tvGuideKeys { display: none; }
+  .tvGuideCorner, .tvGuideCh { width: 110px; }
+  .tvGuideCh .chMark { display: none; }
+  .tvGuideGrid { margin: 0 8px 8px; }
+  .tvBannerRow { grid-template-columns: 40px minmax(0, 1fr) auto; }
+  .tvBannerRow .bar, .tvBannerRow .tvBannerTimes { display: none; }
+  .tvBannerNum { font-size: 22px; min-width: 44px; }
+  .tvBanner { bottom: 56px; }
+  .tvFilters select.field.small { flex: 1 1 120px; }
+}
+
+/* ===== Sports: Bets, odds board, My Teams, Smart Schedule, onboarding (sports engineer) ===== */
+.mono { font-family: var(--mono); }
+.up { color: var(--good); }
+.down { color: var(--bad); }
+.lbl { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--muted); flex: 1; min-width: 120px; }
+.lbl.small { flex: 0 1 130px; min-width: 90px; }
+button.small, .ghost.small { padding: 5px 9px; font-size: 11.5px; }
+.gamblerLine { margin: 26px 0 6px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--dim); font-size: 11.5px; text-align: center; }
+.gamblerLine b { color: var(--muted); }
+.betsPage, .teamsPage { display: flex; flex-direction: column; gap: 4px; }
+.bookBtn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--book, var(--line2)); background: color-mix(in srgb, var(--book, #333) 18%, transparent); color: var(--text); border-radius: 8px; padding: 7px 11px; font-weight: 800; font-size: 12px; white-space: nowrap; }
+.bookBtn svg { width: 13px; height: 13px; }
+.spark { color: var(--accent); vertical-align: middle; margin-left: 6px; }
+
+/* Odds board */
+.oddsGame { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+.ogHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.ogHead b { font-size: 14px; }
+.move { display: inline-flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); }
+.moveItem { display: inline-flex; align-items: center; gap: 4px; }
+.moveItem b { color: var(--text); font-family: var(--mono); }
+.moveItem svg.up, .moveItem svg.down { width: 12px; height: 12px; }
+.ogScroll { overflow-x: auto; }
+.oddsTable { border-collapse: separate; border-spacing: 3px; width: 100%; min-width: 560px; font-size: 12px; }
+.oddsTable thead th { font: 700 10px var(--mono); color: var(--muted); letter-spacing: .04em; text-transform: uppercase; padding: 2px 4px; white-space: nowrap; }
+.oddsTable thead th .bookName { border-bottom: 2px solid var(--book, var(--line2)); padding-bottom: 2px; }
+.oddsTable tbody th { text-align: left; font-weight: 600; white-space: nowrap; padding-right: 10px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.oddsTable tbody th small { display: block; font: 700 9.5px var(--mono); color: var(--dim); letter-spacing: .05em; text-transform: uppercase; }
+.oddCell { width: 100%; min-width: 64px; display: flex; flex-direction: column; align-items: center; gap: 1px; border: 1px solid var(--line); background: #0d1118; border-radius: 7px; padding: 5px 4px; font-family: var(--mono); }
+.oddCell .pt { font-size: 10.5px; color: var(--muted); }
+.oddCell .pr { font-weight: 700; }
+.oddCell:hover { border-color: #4b5466; }
+.oddCell.best { border-color: var(--good); background: #0f2017; }
+.oddCell.best .pr { color: var(--good); }
+.oddCell.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sumCell { text-align: center; font-family: var(--mono); white-space: nowrap; padding: 0 6px; }
+.sumCell b { display: block; font-size: 12px; }
+.sumCell small { color: var(--muted); font-size: 10px; }
+.dim { color: var(--dim); display: block; text-align: center; }
+.pickBar { position: sticky; bottom: 10px; z-index: 5; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #141a24; border: 1px solid var(--line2); border-radius: 12px; padding: 10px 14px; box-shadow: 0 10px 30px #000a; }
+.pbInfo { display: flex; flex-direction: column; flex: 1; min-width: 200px; }
+.pbInfo small { color: var(--muted); }
+
+/* Bet tracker */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 6px 0 14px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; }
+.tile small { font: 700 10px var(--mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.tile b { font: 700 22px var(--mono); margin: 2px 0; }
+.tile em { font-style: normal; color: var(--dim); font-size: 11.5px; }
+.trackerGrid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; margin-bottom: 12px; }
+.trackerGrid .sectionTitle { margin-top: 0; flex-wrap: wrap; }
+.weeklyChart { width: 100%; height: auto; }
+.weeklyChart .axis { stroke: var(--line2); }
+.weeklyChart rect.up { fill: var(--good); opacity: .8; }
+.weeklyChart rect.down { fill: var(--bad); opacity: .8; }
+.weeklyChart .cum { stroke: var(--warn); stroke-width: 1.5; }
+.weeklyChart text { fill: var(--dim); font: 9px var(--mono); }
+.miniTable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.miniTable th, .miniTable td { padding: 5px 6px; text-align: right; border-top: 1px solid var(--line); }
+.miniTable thead th { border-top: 0; font: 700 10px var(--mono); color: var(--muted); }
+.miniTable tbody th { text-align: left; font-weight: 600; }
+.betList { display: flex; flex-direction: column; gap: 6px; }
+.betRow { display: grid; grid-template-columns: 96px minmax(0, 1fr) 56px 80px 90px 120px auto; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 12.5px; }
+.betRow.won { border-left: 3px solid var(--good); }
+.betRow.lost { border-left: 3px solid var(--bad); }
+.brMain { display: flex; flex-direction: column; min-width: 0; }
+.brMain small { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brActions { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
+.bookTag { font: 700 10.5px var(--mono); padding: 3px 7px; border-radius: 5px; border-left: 3px solid var(--book, var(--line2)); background: #0d1118; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.statusPill { font: 700 10px var(--mono); text-transform: uppercase; letter-spacing: .05em; padding: 3px 8px; border-radius: 20px; background: #1a1f29; color: var(--muted); text-align: center; }
+.statusPill.open { color: var(--warn); }
+.statusPill.won { background: #12301f; color: var(--good); }
+.statusPill.lost { background: #321515; color: var(--bad); }
+.statusPill.cashout { color: #8ab4ff; }
+.pl { text-align: right; }
+.legEdit { border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: #0d1118; }
+.parlayCalc { max-width: 720px; }
+.parlayCalc .sectionTitle { margin-top: 0; }
+.pcLeg { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.pcOut { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 12px 0; }
+.pcOut div { display: flex; flex-direction: column; background: #0d1118; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.pcOut small { font: 700 10px var(--mono); color: var(--muted); text-transform: uppercase; }
+.pcOut b { font: 700 20px var(--mono); }
+.pcOut em { font-style: normal; color: var(--dim); font-size: 11px; }
+.betsSettings { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; }
+.betsSettings .sectionTitle:first-child { margin-top: 0; }
+.steps { padding-left: 18px; }
+.breakPanel { max-width: 520px; margin: 30px auto; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.breakPanel .big { width: 40px; height: 40px; color: var(--accent); }
+.betSnap { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 6px; }
+.betSnap div { display: flex; flex-direction: column; }
+.betSnap small { font: 700 10px var(--mono); color: var(--muted); }
+.betSnap b { font: 700 20px var(--mono); }
+.betSnap em { font-style: normal; color: var(--dim); font-size: 11px; }
+
+/* Onboarding */
+.onboard { display: flex; flex-direction: column; gap: 12px; }
+.obSteps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0; }
+.obSteps li { flex: 1; font: 700 11px var(--mono); color: var(--dim); border-top: 3px solid var(--line2); padding-top: 6px; letter-spacing: .04em; text-transform: uppercase; }
+.obSteps li.on { color: var(--text); border-color: var(--accent); }
+.obSteps li.done { color: var(--muted); border-color: #7a2a2a; }
+.onboard p svg { vertical-align: -3px; margin-right: 4px; }
+.obLeagues button { padding: 9px 16px; font-size: 13px; }
+.obOpt { display: flex; align-items: center; gap: 12px; background: #0d1118; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.obOpt span { flex: 1; display: flex; flex-direction: column; }
+.obOpt small { color: var(--muted); }
+
+/* My Teams */
+.teamCards { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 12px; }
+.teamCard { background: linear-gradient(135deg, color-mix(in srgb, var(--team) 22%, var(--panel)) 0%, var(--panel) 45%); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.tcHead { display: flex; align-items: center; gap: 12px; }
+.tcHead h2 { margin: 0; font-size: 17px; }
+.tcHead small { color: var(--muted); }
+.tcNext { display: flex; align-items: center; gap: 14px; background: #0b0e14cc; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.tcNext > div:first-child { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.tcNext small { font: 700 10px var(--mono); color: var(--accent); letter-spacing: .06em; }
+.tcCount { font: 700 20px var(--mono); white-space: nowrap; }
+.tcCols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.tcCols h4 { margin: 0 0 4px; font: 700 10px var(--mono); color: var(--muted); letter-spacing: .06em; }
+.tcRow { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 3px 0; border-top: 1px solid #191e27; }
+.tcRow > span:nth-child(2) { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.res { font: 700 11px var(--mono); width: 18px; text-align: center; border-radius: 4px; }
+.res.W { color: var(--good); }
+.res.L { color: var(--bad); }
+
+/* Smart Schedule */
+.planOpts { display: flex; gap: 16px; flex-wrap: wrap; margin: 4px 0 12px; font-size: 12.5px; }
+.planList { display: flex; flex-direction: column; gap: 8px; }
+.planSlot { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.planSlot.conflict { border-color: #5a4720; }
+.planSlot time { font: 700 13px var(--mono); color: var(--accent); display: flex; flex-direction: column; }
+.planSlot time small { color: var(--dim); font-size: 10.5px; }
+.psBody { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.planCand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.planCand.primary .pcMain b { font-size: 14px; }
+.planCand:not(.primary) { opacity: .85; font-size: 12px; }
+.pcMain { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.pcMain small { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tierTag { font: 700 9.5px var(--mono); text-transform: uppercase; letter-spacing: .05em; padding: 3px 7px; border-radius: 5px; background: #1a1f29; color: var(--muted); white-space: nowrap; }
+.tier-team .tierTag { background: #2a2410; color: #f5c518; }
+.tier-pinned .tierTag { background: #2b1416; color: var(--accent); }
+.tier-fantasy .tierTag { background: #13242e; color: #5ec8ff; }
+.tier-bet .tierTag { background: #13281b; color: var(--good); }
+.chName { font: 700 11px var(--mono); color: var(--text); white-space: nowrap; }
+.chName.none { color: var(--dim); }
+.planCand svg.on { color: var(--accent); }
+.also { display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed var(--line2); padding-top: 6px; }
+.also > span svg { width: 12px; height: 12px; vertical-align: -2px; color: var(--warn); }
+.also > button { align-self: flex-start; }
+.warnIcon { width: 12px; height: 12px; color: var(--warn); margin-left: 4px; vertical-align: -1px; }
+
+/* Fantasy additions */
+.platformTag { font: 700 10px var(--mono); padding: 3px 7px; border-radius: 5px; background: #1a1f29; color: var(--muted); }
+.rosterHead { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.rosterHead small { color: var(--muted); font-family: var(--mono); }
+.inj { font: 700 9px var(--mono); color: var(--bad); margin-left: 5px; font-style: normal; }
+.rp .pts.up { color: var(--good); }
+.rp .pts.down { color: var(--bad); }
+.matchHead b + small { display: block; color: var(--muted); font-family: var(--mono); }
+.hints { margin-top: 12px; }
+.hints .sectionTitle { margin-top: 0; }
+.hints p { margin: 4px 0; }
+
+@media (max-width: 900px) {
+  .trackerGrid { grid-template-columns: 1fr; }
+  .betRow { grid-template-columns: minmax(0, 1fr) auto; }
+  .betRow .bookTag, .betRow > .mono { display: none; }
+  .teamCards { grid-template-columns: minmax(0, 1fr); }
+  .tcCols { grid-template-columns: minmax(0, 1fr); }
+  .planSlot { grid-template-columns: minmax(0, 1fr); }
+  .betsSettings { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Movie / episode controls (player/VodControls.tsx) */
+.vodBar { position: absolute; left: 0; right: 0; bottom: 52px; display: flex; align-items: center; gap: 10px; padding: 0 14px; opacity: 0; transition: opacity .2s; z-index: 2; }
+.player.chrome .vodBar { opacity: 1; }
+.vodTime { font: 600 12px/1 ui-monospace, monospace; color: #ddd; min-width: 52px; text-align: center; }
+.vodSeek { position: relative; flex: 1; height: 18px; display: flex; align-items: center; }
+.vodTrack { position: absolute; left: 0; right: 0; height: 4px; border-radius: 2px; background: #ffffff2e; overflow: hidden; }
+.vodBuf { position: absolute; top: 0; bottom: 0; background: #ffffff55; }
+.vodPlayed { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
+.vodSeek input[type=range] { position: absolute; inset: 0; width: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.vodSeek:hover .vodTrack { height: 6px; }
+.vodBtns { display: flex; gap: 2px; }
+.vodBtns button { border: 0; background: none; color: #ddd; padding: 6px; border-radius: 6px; display: grid; place-items: center; }
+.vodBtns button:hover { background: #ffffff1f; color: #fff; }
+.vodBtns svg { width: 18px; height: 18px; }
+@media (max-width: 600px) { .vodBtns button:first-child, .vodBtns button:last-child { display: none; } .vodTime { min-width: 40px; } }

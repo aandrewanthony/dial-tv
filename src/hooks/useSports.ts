@@ -2,6 +2,10 @@ import { useMemo } from 'react';
 import { useApp } from '../store/app';
 import { stakesByGame, useFantasy, type GameStakes } from '../store/fantasy';
 import { clutchInfo } from '../lib/sports';
+import { buildPlan, planCandidates } from '../lib/scheduler';
+import { matchBroadcasts } from '../lib/channelMatch';
+import { useBets } from '../store/bets';
+import { useSchedulePrefs } from '../store/schedulePrefs';
 import type { SportEvent } from '../types';
 
 export interface RankedGame {
@@ -44,4 +48,39 @@ export function useRankedGames(filter: (g: SportEvent) => boolean = () => true):
       .sort((a, b) => b.watch - a.watch || a.g.start - b.g.start);
   }, [games, favTeams, matchup, players]);
   return ranked.filter((r) => filter(r.g));
+}
+
+/**
+ * Smart Schedule for [from, to): candidates (my teams, fantasy starters, open bets, rules, pinned
+ * items, big national games) → priorities → a plan with one primary pick per time slot and
+ * Multiview suggestions. Every game candidate gets the channel matchBroadcasts finds for it.
+ */
+export function useSmartPlan(from: number, to: number) {
+  const games = useApp((s) => s.games);
+  const schedule = useApp((s) => s.schedule);
+  const favTeams = useApp((s) => s.favTeams);
+  const channels = useApp((s) => s.channels);
+  const overrides = useApp((s) => s.networkOverrides);
+  const matchup = useFantasy((s) => s.matchup);
+  const players = useFantasy((s) => s.players);
+  const bets = useBets((s) => s.bets);
+  const pinned = useSchedulePrefs((s) => s.pinned);
+  const skipped = useSchedulePrefs((s) => s.skipped);
+  const includeOther = useSchedulePrefs((s) => s.includeOther);
+  return useMemo(() => {
+    const list = Object.values(games);
+    const stakes = new Map<string, { mine: number; theirs: number }>();
+    for (const [id, st] of stakesByGame(list, matchup, players)) stakes.set(id, { mine: st.mine.length, theirs: st.theirs.length });
+    const betEvents = new Set<string>();
+    for (const b of bets) if (b.status === 'open') for (const l of b.legs) if (l.eventId) betEvents.add(l.eventId);
+    const cands = planCandidates({ from, to, games: list, schedule, favTeams, stakes, betEvents, pinned, skipped, includeOther, clutch: (g) => clutchInfo(g).score });
+    for (const c of cands) {
+      if (c.channelId || !c.eventId) continue;
+      const g = games[c.eventId];
+      const m = g ? matchBroadcasts(g.broadcasts, channels, overrides) : null;
+      if (m) c.channelId = m.channel.id;
+    }
+    const slots = buildPlan(cands);
+    return { cands, slots };
+  }, [games, schedule, favTeams, channels, overrides, matchup, players, bets, pinned, skipped, includeOther, from, to]);
 }

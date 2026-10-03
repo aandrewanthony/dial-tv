@@ -8,6 +8,7 @@ import { useEngine } from '../hooks/useEngine';
 import { SearchPalette } from '../components/SearchPalette';
 import { Modal } from '../components/ui';
 import { clutchInfo } from '../lib/sports';
+import { Onboarding, useOnboardingGate } from '../components/sports/Onboarding';
 import HomePage from '../pages/HomePage';
 import WatchPage from '../pages/WatchPage';
 
@@ -72,6 +73,8 @@ export default function App() {
   const storageError = useApp((s) => (s as { storageError?: string }).storageError);
   const liveCount = useApp((s) => Object.values(s.games).filter((g) => g.state === 'in').length);
 
+  // First-run sports onboarding: shown on Game Day (the Sports landing page) until done or skipped.
+  const onboarding = useOnboardingGate(route);
   useGlobalKeys(route);
 
   useEffect(() => {
@@ -127,7 +130,7 @@ export default function App() {
           </Suspense>
         )}
       </main>
-      <BottomLine />
+      {onboarding && <Onboarding />}
       {searchOpen && <SearchPalette />}
       <LockGate />
       <ShortcutHelp />
@@ -141,43 +144,6 @@ export default function App() {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-/** ESPN-style bottom line ticker of live and recent scores. */
-function BottomLine() {
-  const games = useApp((s) => s.games);
-  const settings = useApp((s) => s.settings);
-  const favTeams = useApp((s) => s.favTeams);
-  const items = useMemo(() => {
-    const now = Date.now();
-    return Object.values(games)
-      .filter((g) => g.state === 'in' || (g.state === 'post' && now - g.start < 10 * 3600_000) || (g.state === 'pre' && g.start - now < 3 * 3600_000))
-      .sort((a, b) => {
-        const fa = favTeams.some((t) => t.endsWith(':' + a.home.abbr) || t.endsWith(':' + a.away.abbr)) ? 1 : 0;
-        const fb = favTeams.some((t) => t.endsWith(':' + b.home.abbr) || t.endsWith(':' + b.away.abbr)) ? 1 : 0;
-        const order = { in: 0, pre: 1, post: 2 } as const;
-        return fb - fa || order[a.state] - order[b.state] || clutchInfo(b).score - clutchInfo(a).score || a.start - b.start;
-      })
-      .slice(0, 40);
-  }, [games, favTeams]);
-  if (!items.length) return null;
-  const render = (k: string) => items.map((g) => {
-    const vis = showScore({ settings }, g.id);
-    const c = clutchInfo(g);
-    return (
-      <button type="button" key={k + g.id} className={`tick ${g.state} ${c.clutch ? 'clutch' : ''}`} onClick={() => navigate('sports')} tabIndex={k === 'b' ? -1 : undefined} aria-hidden={k === 'b' ? true : undefined}>
-        <i>{g.league.toUpperCase()}</i>
-        {g.away.abbr} {g.state !== 'pre' && vis ? g.awayScore : ''} · {g.home.abbr} {g.state !== 'pre' && vis ? g.homeScore : ''}
-        <em>{g.state === 'pre' ? new Date(g.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : vis ? g.statusText : g.state === 'in' ? 'LIVE' : 'FINAL'}</em>
-      </button>
-    );
-  });
-  return (
-    <div className="bottomLine" aria-label="Scores ticker">
-      <div className="tickLabel">SCORES</div>
-      <div className="tickTrack"><div className="tickInner" style={{ animationDuration: `${Math.max(30, items.length * 5)}s` }}>{render('a')}{render('b')}</div></div>
     </div>
   );
 }
@@ -257,7 +223,7 @@ function ShortcutHelp() {
   const rows: [string, string][] = [
     ['0–9', 'Type a channel number'], ['↑ / ↓', 'Channel up / down (Watch)'], ['L', 'Last channel'],
     ['Space / K', 'Play / pause'], ['M', 'Mute'], ['F', 'Fullscreen'], ['T', 'Theater mode'], ['P', 'Picture-in-picture'],
-    ['I', 'Stream health'], ['[ / ]', 'Volume down / up'], ['G', 'Guide'], ['S', 'Sports'], ['H', 'Game Day'], ['V', 'Multiview'], ['Ctrl K', 'Search'],
+    ['I', 'Stream health'], ['[ / ]', 'Volume down / up'], ['G', 'Guide (over live TV on Live TV)'], ['B / Enter', 'Channel info banner (Live TV)'], ['← / →', 'Skip 10 s in movies (Shift: 30 s)'], ['S', 'Scores'], ['H', 'Game Day'], ['V', 'Multiview'], ['Ctrl K', 'Search'],
   ];
   return (
     <Modal title="Keyboard shortcuts" onClose={() => setOpen(false)}>

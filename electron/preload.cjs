@@ -14,7 +14,8 @@ contextBridge.exposeInMainWorld('dialDesktop', {
   decoder: {
     info: () => ipcRenderer.invoke('dial:decoder-info'),
     probe: (url, headers) => ipcRenderer.invoke('dial:probe', String(url), headers ?? {}),
-    url: (src, headers) => ipcRenderer.invoke('dial:decoder-url', String(src), headers ?? {}),
+    // opts: how to convert (preset, scale, deinterlace, hardware encoder, movie start/lead); validated in main.
+    url: (src, headers, opts) => ipcRenderer.invoke('dial:decoder-url', String(src), headers ?? {}, opts ?? {}),
     infoFor: (src) => ipcRenderer.invoke('dial:decoder-info-for', String(src)),
   },
 });

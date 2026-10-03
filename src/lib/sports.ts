@@ -1,4 +1,4 @@
-import type { BetPick, League, SportEvent } from '../types';
+import type { League, SportEvent } from '../types';
 
 export const LEAGUES: { id: League; label: string; sport: string }[] = [
   { id: 'nfl', label: 'NFL', sport: 'football' },
@@ -85,79 +85,351 @@ export function clutchInfo(g: SportEvent): ClutchInfo {
   return { clutch, score, reason: clutch ? reason : undefined };
 }
 
-// ---------- Picks / bet tracker ----------
+// ---------- Odds math ----------
 
-/** Profit in units for a winning bet at the given American price (default -110). */
+/** Profit for a winning stake at an American price (default -110). */
 export function payout(units: number, price = '-110') {
   const n = parseInt(price, 10);
   if (!Number.isFinite(n) || n === 0) return units * (100 / 110);
   return n > 0 ? units * (n / 100) : units * (100 / Math.abs(n));
 }
 
-const SOCCER = new Set<League>(['mls', 'epl']);
+/** Decimal odds for an American price (e.g. -110 → 1.909, +150 → 2.5). */
+export function americanToDecimal(a: number): number {
+  if (!Number.isFinite(a) || a === 0) return 1;
+  return a > 0 ? 1 + a / 100 : 1 + 100 / Math.abs(a);
+}
+
+/** American price for decimal odds (rounded to a whole number). */
+export function decimalToAmerican(d: number): number {
+  if (!Number.isFinite(d) || d <= 1) return 0;
+  return d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1));
+}
+
+/** Implied win probability (0–1) of an American price, vig included. */
+export const impliedProb = (a: number) => 1 / americanToDecimal(a);
+
+/** Remove the bookmaker margin: normalize the implied probabilities of every outcome of one market to sum to 1. */
+export function noVig(prices: number[]): number[] {
+  const p = prices.map(impliedProb);
+  const sum = p.reduce((a, b) => a + b, 0);
+  return sum > 0 ? p.map((x) => x / sum) : p;
+}
+
+/** Bookmaker margin (overround) of one market, e.g. 0.0476 for -110/-110. */
+export function vig(prices: number[]): number {
+  return prices.reduce((a, b) => a + impliedProb(b), 0) - 1;
+}
+
+/** Fair American price for a probability. */
+export const probToAmerican = (p: number) => (p > 0 && p < 1 ? decimalToAmerican(1 / p) : 0);
+
+export function fmtAmerican(a: number | undefined): string {
+  if (a == null || !Number.isFinite(a) || a === 0) return '—';
+  return a > 0 ? `+${a}` : `${a}`;
+}
+
+export const fmtPct = (p: number | undefined, digits = 1) => (p == null || !Number.isFinite(p) ? '—' : `${(p * 100).toFixed(digits)}%`);
+
+export const fmtMoney = (n: number, sign = false) => {
+  const s = Math.abs(n).toLocaleString(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n < 0 ? `-${s}` : sign && n > 0 ? `+${s}` : s;
+};
+
+export function median(xs: number[]): number | undefined {
+  const s = xs.filter(Number.isFinite).sort((a, b) => a - b);
+  if (!s.length) return undefined;
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+export type LineKind = 'ml' | 'spread' | 'over' | 'under';
 
 /**
- * Grade a pick against a game. Returns undefined while the game is not final (or the
- * pick can't be graded, e.g. a spread/total pick with no line). Postponed/canceled → 'void'.
+ * How good a line is for the bettor, to compare books on the same side of a market:
+ * more points first (spread +7 beats +6.5; over: a lower total; under: a higher total), then the better price.
  */
-export function gradePick(p: BetPick, g: SportEvent | undefined): BetPick['result'] | undefined {
+export function lineValue(kind: LineKind, price: number, point?: number): number {
+  const pts = point == null ? 0 : kind === 'over' ? -point : point;
+  // Half a point outweighs any price difference within the same number.
+  return (kind === 'ml' ? 0 : pts * 1000) + americanToDecimal(price);
+}
+
+/** Index of the best line among offers (ties: first). -1 when there are none. */
+export function bestIndex(kind: LineKind, offers: ({ price: number; point?: number } | undefined)[]): number {
+  let best = -1;
+  let bv = -Infinity;
+  offers.forEach((o, i) => {
+    if (!o || !Number.isFinite(o.price) || o.price === 0) return;
+    const v = lineValue(kind, o.price, o.point);
+    if (v > bv) {
+      bv = v;
+      best = i;
+    }
+  });
+  return best;
+}
+
+/** Parlay: combined decimal/American odds, payout for a stake, and the implied probability (independent legs). */
+export function parlayPrice(legOdds: number[], stake = 0) {
+  const dec = legOdds.reduce((a, o) => a * americanToDecimal(o), 1);
+  return {
+    decimal: dec,
+    american: legOdds.length ? decimalToAmerican(dec) : 0,
+    payout: stake * dec,
+    profit: stake * (dec - 1),
+    prob: legOdds.length ? legOdds.reduce((a, o) => a * impliedProb(o), 1) : 0,
+  };
+}
+
+// ---------- Bet tracking & grading ----------
+
+export type BetMarket = 'moneyline' | 'spread' | 'total';
+export type LegResult = 'win' | 'loss' | 'push' | 'void';
+export type BetStatus = 'open' | 'won' | 'lost' | 'push' | 'void' | 'cashout';
+
+export interface BetLeg {
+  id: string;
+  /** ESPN game id (`league:id`) when the leg is tied to a game: enables auto-grading. */
+  eventId?: string;
+  league: League;
+  /** Game start, so the game can be re-fetched for grading after it leaves the live window. */
+  start?: number;
+  /** Display label, e.g. "BUF @ KC". */
+  game: string;
+  market: BetMarket;
+  /** Team abbreviation (moneyline/spread), 'draw' (soccer 3-way), or 'over' / 'under'. */
+  side: string;
+  /** Spread from the picked side's perspective, or the total. */
+  line?: number;
+  /** American price. */
+  odds: number;
+  result?: LegResult;
+}
+
+export interface Bet {
+  id: string;
+  /** Sportsbook key, e.g. 'fanduel'. */
+  book: string;
+  type: 'straight' | 'parlay';
+  legs: BetLeg[];
+  /** American price at placement (parlay: the combined price on the ticket). */
+  odds: number;
+  stake: number;
+  placedAt: number;
+  notes?: string;
+  status: BetStatus;
+  /** Money back when settled (stake + profit; push/void = stake; cash-out = amount received). */
+  returned?: number;
+  settledAt?: number;
+  /** Settled by hand (cash-out or override): never auto-graded again. */
+  manual?: boolean;
+}
+
+const SOCCER = new Set<League>(['mls', 'epl']);
+export const isSoccer = (l: League) => SOCCER.has(l);
+
+/**
+ * Grade one leg against a game. undefined while the game isn't final (or the leg can't be graded,
+ * e.g. a spread with no line or a side that isn't one of the teams). Postponed/canceled → 'void'.
+ * Soccer moneylines are 3-way: a draw loses either team (and wins 'draw').
+ */
+export function gradeLeg(leg: Pick<BetLeg, 'market' | 'side' | 'line'>, g: SportEvent | undefined): LegResult | undefined {
   if (!g) return undefined;
   if (g.postponed || g.canceled) return 'void';
   if (g.state !== 'post' || g.completed === false || g.homeScore == null || g.awayScore == null) return undefined;
-  if ((p.market === 'spread' || p.market === 'total') && p.line == null) return undefined;
-  const pickedHome = p.side === g.home.abbr;
+  if ((leg.market === 'spread' || leg.market === 'total') && leg.line == null) return undefined;
+  if (leg.market === 'total') {
+    if (leg.side !== 'over' && leg.side !== 'under') return undefined;
+    const total = g.homeScore + g.awayScore;
+    const m = leg.side === 'over' ? total - leg.line! : leg.line! - total;
+    return m > 0 ? 'win' : m < 0 ? 'loss' : 'push';
+  }
+  if (leg.side === 'draw') {
+    if (leg.market !== 'moneyline') return undefined;
+    return g.homeScore === g.awayScore ? 'win' : 'loss';
+  }
+  if (leg.side !== g.home.abbr && leg.side !== g.away.abbr) return undefined;
+  const pickedHome = leg.side === g.home.abbr;
   const mine = pickedHome ? g.homeScore : g.awayScore;
   const theirs = pickedHome ? g.awayScore : g.homeScore;
-  let margin: number;
-  if (p.market === 'moneyline') {
-    margin = mine - theirs;
-    // Soccer moneyline is a 3-way market: a draw loses a team bet.
+  let margin = mine - theirs;
+  if (leg.market === 'moneyline') {
     if (margin === 0 && SOCCER.has(g.league)) return 'loss';
-  } else if (p.market === 'spread') margin = mine - theirs + p.line!;
-  else {
-    const total = g.homeScore + g.awayScore;
-    margin = p.side === 'over' ? total - p.line! : p.line! - total;
-  }
+  } else margin += leg.line!;
   return margin > 0 ? 'win' : margin < 0 ? 'loss' : 'push';
 }
 
-export function pickProfit(p: BetPick) {
-  if (p.result === 'win') return payout(p.units, p.price);
-  if (p.result === 'loss') return -p.units;
-  return 0; // push, void, pending
+const cents = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Settle a bet from its legs' results. Parlays: any losing leg loses the ticket; pushed/void legs drop out
+ * and the ticket is repriced on the remaining winners; if every leg pushed/voided the stake comes back.
+ */
+export function settleBet(b: Bet, now = Date.now()): Bet {
+  if (b.manual) return b;
+  const results = b.legs.map((l) => l.result);
+  let status: BetStatus = 'open';
+  let returned: number | undefined;
+  if (b.legs.length === 1) {
+    const r = results[0];
+    if (r === 'win') { status = 'won'; returned = b.stake * americanToDecimal(b.odds); }
+    else if (r === 'loss') { status = 'lost'; returned = 0; }
+    else if (r === 'push') { status = 'push'; returned = b.stake; }
+    else if (r === 'void') { status = 'void'; returned = b.stake; }
+  } else if (results.includes('loss')) {
+    status = 'lost';
+    returned = 0;
+  } else if (results.every((r) => r != null)) {
+    const winners = b.legs.filter((l) => l.result === 'win');
+    if (!winners.length) {
+      status = results.every((r) => r === 'void') ? 'void' : 'push';
+      returned = b.stake;
+    } else {
+      status = 'won';
+      // Every leg won: pay the price on the ticket (books round/boost). Otherwise reprice on the winners.
+      returned = winners.length === b.legs.length ? b.stake * americanToDecimal(b.odds) : parlayPrice(winners.map((l) => l.odds), b.stake).payout;
+    }
+  }
+  const ret = returned == null ? undefined : cents(returned);
+  if (status === b.status && ret === b.returned) return b;
+  return { ...b, status, returned: ret, settledAt: status === 'open' ? undefined : b.settledAt ?? now };
 }
 
-export interface PickRecord {
-  player: string;
-  wins: number;
-  losses: number;
-  pushes: number;
-  /** Postponed/canceled picks (no action). */
-  voids: number;
-  pending: number;
-  units: number;
-  streak: string;
+/** Grade every open, auto-graded bet against the games. Returns the same array when nothing changed. */
+export function gradeBets(bets: Bet[], games: Record<string, SportEvent>, now = Date.now()): Bet[] {
+  let changed = false;
+  const out = bets.map((b) => {
+    if (b.manual || b.status !== 'open') return b;
+    let legsChanged = false;
+    const legs = b.legs.map((l) => {
+      if (l.result || !l.eventId) return l;
+      const r = gradeLeg(l, games[l.eventId]);
+      if (!r) return l;
+      legsChanged = true;
+      return { ...l, result: r };
+    });
+    const next = settleBet(legsChanged ? { ...b, legs } : b, now);
+    if (next !== b) changed = true;
+    return next;
+  });
+  return changed ? out : bets;
 }
 
-export function recordFor(player: string, picks: BetPick[]): PickRecord {
-  const mine = picks.filter((p) => p.player === player).sort((a, b) => a.createdAt - b.createdAt);
-  const r: PickRecord = { player, wins: 0, losses: 0, pushes: 0, voids: 0, pending: 0, units: 0, streak: '—' };
-  for (const p of mine) {
-    if (p.result === 'win') r.wins++;
-    else if (p.result === 'loss') r.losses++;
-    else if (p.result === 'push') r.pushes++;
-    else if (p.result === 'void') r.voids++;
-    else r.pending++;
-    r.units += pickProfit(p);
+/** Profit (+) or loss (−) of a bet; 0 while open. */
+export function betProfit(b: Bet): number {
+  if (b.status === 'open') return 0;
+  if (b.status === 'lost') return -b.stake;
+  return cents((b.returned ?? b.stake) - b.stake);
+}
+
+/** What an open bet pays back if it wins. */
+export const potentialReturn = (b: Pick<Bet, 'stake' | 'odds'>) => cents(b.stake * americanToDecimal(b.odds));
+
+export interface BetSummary {
+  bets: number;
+  open: number;
+  openStake: number;
+  won: number;
+  lost: number;
+  pushed: number;
+  /** Stake of settled bets (push/void excluded). */
+  risked: number;
+  profit: number;
+  /** profit / risked */
+  roi: number;
+}
+
+export function summarize(bets: Bet[]): BetSummary {
+  const s: BetSummary = { bets: bets.length, open: 0, openStake: 0, won: 0, lost: 0, pushed: 0, risked: 0, profit: 0, roi: 0 };
+  for (const b of bets) {
+    if (b.status === 'open') {
+      s.open++;
+      s.openStake += b.stake;
+      continue;
+    }
+    if (b.status === 'push' || b.status === 'void') {
+      s.pushed++;
+      continue;
+    }
+    const p = betProfit(b);
+    if (p > 0) s.won++;
+    else if (p < 0) s.lost++;
+    s.risked += b.stake;
+    s.profit = cents(s.profit + p);
   }
-  const graded = mine.filter((p) => p.result === 'win' || p.result === 'loss');
-  if (graded.length) {
-    const last = graded[graded.length - 1].result!;
-    let n = 0;
-    for (let i = graded.length - 1; i >= 0 && graded[i].result === last; i--) n++;
-    r.streak = `${last === 'win' ? 'W' : 'L'}${n}`;
+  s.roi = s.risked ? s.profit / s.risked : 0;
+  return s;
+}
+
+/** Sport bucket of a bet: its league, or 'Multi' for cross-league parlays. */
+export function betSport(b: Bet): string {
+  const ls = new Set(b.legs.map((l) => l.league));
+  return ls.size === 1 ? leagueLabel([...ls][0]) : 'Multi';
+}
+
+export function groupSummary(bets: Bet[], key: (b: Bet) => string): [string, BetSummary][] {
+  const m = new Map<string, Bet[]>();
+  for (const b of bets) {
+    const k = key(b);
+    const arr = m.get(k);
+    if (arr) arr.push(b);
+    else m.set(k, [b]);
   }
-  return r;
+  return [...m.entries()].map(([k, v]) => [k, summarize(v)] as [string, BetSummary]).sort((a, b) => b[1].bets - a[1].bets);
+}
+
+/** Local Monday 00:00 of the week containing `ms`. */
+export function weekStart(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d.getTime();
+}
+
+/** Profit per week (by settle time) for the last `weeks` weeks, oldest first. */
+export function weeklyProfit(bets: Bet[], now = Date.now(), weeks = 12): { week: number; profit: number }[] {
+  const cur = weekStart(now);
+  const out: { week: number; profit: number }[] = [];
+  // Mid-week anchor + re-normalize so DST shifts never skew a bucket.
+  for (let i = weeks - 1; i >= 0; i--) out.push({ week: weekStart(cur + 3 * 86400e3 - i * 7 * 86400e3), profit: 0 });
+  const idx = new Map(out.map((x, i) => [x.week, i]));
+  for (const b of bets) {
+    if (b.status === 'open' || !b.settledAt) continue;
+    const i = idx.get(weekStart(b.settledAt));
+    if (i != null) out[i].profit = cents(out[i].profit + betProfit(b));
+  }
+  return out;
+}
+
+/** Net loss this week (positive number, 0 when up) — for the weekly loss limit. */
+export function weekLoss(bets: Bet[], now = Date.now()): number {
+  const w = weekStart(now);
+  const p = bets.filter((b) => b.status !== 'open' && (b.settledAt ?? 0) >= w).reduce((a, b) => a + betProfit(b), 0);
+  return Math.max(0, -cents(p));
+}
+
+export function legLabel(l: Pick<BetLeg, 'market' | 'side' | 'line' | 'game'>): string {
+  if (l.market === 'total') return `${l.game} ${l.side === 'over' ? 'O' : 'U'} ${l.line ?? '?'}`;
+  if (l.side === 'draw') return `${l.game} Draw`;
+  if (l.market === 'spread') return `${l.side} ${fmtLine(l.line)}`;
+  return `${l.side} ML`;
+}
+
+const csvCell = (v: unknown) => {
+  const s = v == null ? '' : String(v);
+  // Neutralize spreadsheet formulas (but keep plain signed numbers), then quote when needed.
+  const safe = /^[=+\-@\t\r]/.test(s) && !/^[-+]?\d/.test(s) ? `'${s}` : s;
+  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+};
+
+export function betsToCsv(bets: Bet[], bookTitle: (key: string) => string = (k) => k): string {
+  const head = ['placed', 'book', 'type', 'sport', 'selection', 'odds', 'stake', 'status', 'returned', 'profit', 'settled', 'notes'];
+  const rows = bets.map((b) => [
+    new Date(b.placedAt).toISOString(), bookTitle(b.book), b.type, betSport(b), b.legs.map(legLabel).join(' + '), fmtAmerican(b.odds), b.stake.toFixed(2),
+    b.status, b.returned?.toFixed(2) ?? '', betProfit(b).toFixed(2), b.settledAt ? new Date(b.settledAt).toISOString() : '', b.notes ?? '',
+  ]);
+  return [head, ...rows].map((r) => r.map(csvCell).join(',')).join('\n');
 }
 
 /** Spread line from a given team's perspective, derived from ESPN odds. */

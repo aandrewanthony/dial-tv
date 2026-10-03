@@ -3,9 +3,11 @@ import { useApp } from '../store/app';
 import { useFantasy } from '../store/fantasy';
 import { nyDate, scoreboardFor, shiftYmd, ymd } from '../providers/espn';
 import type { League, ScheduleEntry, SportEvent } from '../types';
-import { clutchInfo, gradePick, leagueLabel } from '../lib/sports';
+import { clutchInfo, leagueLabel } from '../lib/sports';
 import { matchBroadcasts } from '../lib/channelMatch';
-import { applyRules, HOUR, MIN, startOfDay } from '../lib/scheduler';
+import { applyRules, autoTuneTarget, HOUR, MIN, startOfDay } from '../lib/scheduler';
+import { gradeOpenBets, openLegs, recordEspnLines, useBets } from '../store/bets';
+import { useSchedulePrefs } from '../store/schedulePrefs';
 import { notify } from '../lib/notify';
 
 const DAYS_BACK = 1;
@@ -52,7 +54,7 @@ function dayStarts(now: number) {
   return out;
 }
 
-/** ESPN dates to query for an open pick whose game left the live window: its US-Eastern slate date and both neighbours. */
+/** ESPN dates to query for an open bet leg whose game left the live window: its US-Eastern slate date and both neighbours. */
 export function pickDates(start: number): string[] {
   const d = nyDate(start);
   return [d, shiftYmd(d, -1), shiftYmd(d, 1)];
@@ -70,7 +72,7 @@ interface Job {
  */
 export function planJobs(
   now: number,
-  state: { leagues: League[]; games: Record<string, SportEvent>; picks: { result?: string; start?: number; eventId: string; league: League }[] },
+  state: { leagues: League[]; games: Record<string, SportEvent>; pending: { result?: string; start?: number; eventId: string; league: League }[] },
   force = false,
 ): Job[] {
   const today = startOfDay(now);
@@ -103,8 +105,8 @@ export function planJobs(
       consider(league, dates, maxAge);
     }
   }
-  // Open picks whose game has aged out of the window still need a final score to grade.
-  for (const p of state.picks) {
+  // Open bet legs whose game has aged out of the window still need a final score to grade.
+  for (const p of state.pending) {
     if (p.result || !p.start || p.start > now || state.games[p.eventId]) continue;
     for (const d of pickDates(p.start)) consider(p.league, d, 30 * MIN);
   }
@@ -113,8 +115,8 @@ export function planJobs(
 
 async function pollSports(force = false) {
   const now = Date.now();
-  const { leagues, games, picks } = useApp.getState();
-  const jobs = planJobs(now, { leagues, games, picks }, force);
+  const { leagues, games } = useApp.getState();
+  const jobs = planJobs(now, { leagues, games, pending: useBets.getState().hydrated ? openLegs() : [] }, force);
   if (!jobs.length) return;
   for (const j of jobs) {
     const s = ks(j.key);
@@ -154,7 +156,8 @@ async function pollSports(force = false) {
       gameSource.set(e.id, { key: j.key, startedAt });
     }
   }
-  gradePicks(next);
+  gradeOpenBets(next);
+  recordEspnLines(Object.values(next));
   // Drop games outside the window and leagues that were disabled.
   const lo = startOfDay(Date.now()) - (DAYS_BACK + 1) * 24 * HOUR;
   const enabled = new Set(useApp.getState().leagues);
@@ -181,6 +184,8 @@ export function useEngine() {
   const alerted = useRef(new Set<string>());
   /** Reminders already shown; a ref so StrictMode's effect re-run doesn't fire them twice. */
   const fired = useRef(new Set<string>());
+  /** Smart Schedule items already auto-tuned. */
+  const autoTuned = useRef(new Set<string>());
   const leagues = useApp((s) => s.leagues);
   const hydrated = useApp((s) => s.hydrated);
   const fantasyCfg = useApp((s) => s.fantasy);
@@ -300,6 +305,7 @@ export function useEngine() {
         }
       }
       addRuleEntries();
+      runAutoTune(autoTuned.current);
     };
     tick();
     const t = setInterval(tick, 30_000);
@@ -307,19 +313,35 @@ export function useEngine() {
   }, [hydrated]);
 }
 
-/** Grade open picks against final scores. */
-function gradePicks(games: Record<string, SportEvent>) {
-  const picks = useApp.getState().picks;
-  if (!picks.some((p) => !p.result)) return;
-  let changed = false;
-  const graded = picks.map((p) => {
-    if (p.result) return p;
-    const r = gradePick(p, games[p.eventId]);
-    if (!r) return p;
-    changed = true;
-    return { ...p, result: r };
+/** Is the tuned channel showing a live game of one of my teams? (Smart Schedule "don't interrupt".) */
+export function watchingMyTeam(app: Pick<ReturnType<typeof useApp.getState>, 'currentId' | 'games' | 'favTeams' | 'channels' | 'networkOverrides'>): boolean {
+  if (!app.currentId) return false;
+  return Object.values(app.games).some((g) => {
+    if (g.state !== 'in') return false;
+    if (!app.favTeams.includes(g.league + ':' + g.home.abbr) && !app.favTeams.includes(g.league + ':' + g.away.abbr)) return false;
+    return matchBroadcasts(g.broadcasts, app.channels, app.networkOverrides)?.channel.id === app.currentId;
   });
-  if (changed) useApp.setState({ picks: graded });
+}
+
+/** Smart Schedule auto-tune: switch to an accepted plan item when it starts. */
+function runAutoTune(fired: Set<string>) {
+  const prefs = useSchedulePrefs.getState();
+  if (!prefs.hydrated || !prefs.autoTune || !prefs.planned.length) return;
+  const app = useApp.getState();
+  const planned = new Set(prefs.planned);
+  const entries = app.schedule
+    .filter((e) => planned.has(e.id))
+    .map((e) => {
+      const g = e.eventId ? app.games[e.eventId] : undefined;
+      return { id: e.id, title: e.title, start: g?.start ?? e.start, channelId: e.channelId ?? (g ? matchBroadcasts(g.broadcasts, app.channels, app.networkOverrides)?.channel.id : undefined) };
+    });
+  const t = autoTuneTarget(Date.now(), entries, { currentId: app.currentId, fired, watchingMyTeam: watchingMyTeam(app), dontInterrupt: prefs.dontInterruptMyTeam });
+  if (!t) return;
+  fired.add(t.key);
+  const e = entries.find((x) => x.id === t.id)!;
+  const ch = app.channels.find((c) => c.id === t.channelId);
+  app.tune(t.channelId);
+  app.toast({ kind: 'reminder', title: 'Smart Schedule switched channels', body: e.title + (ch ? ' on ' + ch.name : '') });
 }
 
 /**

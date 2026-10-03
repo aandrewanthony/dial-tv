@@ -1,0 +1,54 @@
+{
+  "gameId": 1,
+  "id": 424242,
+  "seasonId": 2026,
+  "scoringPeriodId": 5,
+  "segmentId": 0,
+  "status": { "currentMatchupPeriod": 5, "latestScoringPeriod": 5, "isActive": true },
+  "settings": { "name": "Sunday Funday League", "size": 4 },
+  "members": [
+    { "id": "{AAAA-1111}", "displayName": "andrew_sf", "firstName": "Andrew", "lastName": "F" },
+    { "id": "{BBBB-2222}", "displayName": "bro_fantasy", "firstName": "Bro", "lastName": "F" },
+    { "id": "{CCCC-3333}", "displayName": "third", "firstName": "T", "lastName": "H" },
+    { "id": "{DDDD-4444}", "displayName": "fourth", "firstName": "F", "lastName": "O" }
+  ],
+  "teams": [
+    {
+      "id": 1, "abbrev": "AF", "location": "Gridiron", "nickname": "Gurus", "owners": ["{AAAA-1111}"], "primaryOwner": "{AAAA-1111}",
+      "record": { "overall": { "wins": 3, "losses": 1, "ties": 0 } },
+      "roster": { "entries": [
+        { "playerId": 3918298, "lineupSlotId": 0, "playerPoolEntry": { "player": { "id": 3918298, "fullName": "Josh Allen", "defaultPositionId": 1, "proTeamId": 2, "injuryStatus": "ACTIVE",
+          "stats": [ { "scoringPeriodId": 5, "statSourceId": 0, "statSplitTypeId": 1, "appliedTotal": 21.36 }, { "scoringPeriodId": 5, "statSourceId": 1, "statSplitTypeId": 1, "appliedTotal": 22.1 }, { "scoringPeriodId": 0, "statSourceId": 0, "statSplitTypeId": 0, "appliedTotal": 99.5 } ] } } },
+        { "playerId": 4379399, "lineupSlotId": 2, "playerPoolEntry": { "player": { "id": 4379399, "fullName": "James Cook III", "defaultPositionId": 2, "proTeamId": 2,
+          "stats": [ { "scoringPeriodId": 5, "statSourceId": 1, "statSplitTypeId": 1, "appliedTotal": 14.2 } ] } } },
+        { "playerId": 4241478, "lineupSlotId": 4, "playerPoolEntry": { "player": { "id": 4241478, "fullName": "Michael Pittman Jr.", "defaultPositionId": 3, "proTeamId": 11, "injuryStatus": "QUESTIONABLE",
+          "stats": [ { "scoringPeriodId": 5, "statSourceId": 1, "statSplitTypeId": 1, "appliedTotal": 9.5 } ] } } },
+        { "playerId": 4426515, "lineupSlotId": 23, "playerPoolEntry": { "player": { "id": 4426515, "fullName": "Terry McLaurin", "defaultPositionId": 3, "proTeamId": 28,
+          "stats": [ { "scoringPeriodId": 5, "statSourceId": 1, "statSplitTypeId": 1, "appliedTotal": 8.0 } ] } } },
+        { "playerId": -16002, "lineupSlotId": 16, "playerPoolEntry": { "player": { "id": -16002, "fullName": "Bills D/ST", "defaultPositionId": 16, "proTeamId": 2,
+          "stats": [ { "scoringPeriodId": 5, "statSourceId": 1, "statSplitTypeId": 1, "appliedTotal": 7.0 } ] } } },
+        { "playerId": 4362628, "lineupSlotId": 20, "playerPoolEntry": { "player": { "id": 4362628, "fullName": "Ja'Marr Chase", "defaultPositionId": 3, "proTeamId": 4,
+          "stats": [ { "scoringPeriodId": 5, "statSourceId": 1, "statSplitTypeId": 1, "appliedTotal": 16.4 } ] } } },
+        { "playerId": 3054850, "lineupSlotId": 21, "playerPoolEntry": { "player": { "id": 3054850, "fullName": "Hurt Guy", "defaultPositionId": 2, "proTeamId": 25, "injuryStatus": "OUT", "stats": [] } } }
+      ] }
+    },
+    {
+      "id": 2, "name": "Bro Ballers", "owners": ["{BBBB-2222}"], "primaryOwner": "{BBBB-2222}",
+      "roster": { "entries": [
+        { "playerId": 3139477, "lineupSlotId": 0, "playerPoolEntry": { "player": { "id": 3139477, "fullName": "Patrick Mahomes", "defaultPositionId": 1, "proTeamId": 12,
+          "stats": [ { "scoringPeriodId": 5, "statSourceId": 0, "statSplitTypeId": 1, "appliedTotal": 18.0 }, { "scoringPeriodId": 5, "statSourceId": 1, "statSplitTypeId": 1, "appliedTotal": 20.0 } ] } } },
+        { "playerId": 4430807, "lineupSlotId": 2, "playerPoolEntry": { "player": { "id": 4430807, "fullName": "Bijan Robinson", "defaultPositionId": 2, "proTeamId": 1,
+          "stats": [ { "scoringPeriodId": 5, "statSourceId": 1, "statSplitTypeId": 1, "appliedTotal": 17.0 } ] } } },
+        { "playerId": 4047365, "lineupSlotId": 6, "playerPoolEntry": { "player": { "id": 4047365, "fullName": "Jonathan Taylor", "defaultPositionId": 2, "proTeamId": 11,
+          "stats": [ { "scoringPeriodId": 5, "statSourceId": 1, "statSplitTypeId": 1, "appliedTotal": 15.0 } ] } } }
+      ] }
+    },
+    { "id": 3, "location": "Third", "nickname": "Team", "owners": ["{CCCC-3333}"], "roster": { "entries": [] } },
+    { "id": 4, "location": "Fourth", "nickname": "Team", "owners": ["{DDDD-4444}"], "roster": { "entries": [] } }
+  ],
+  "schedule": [
+    { "id": 17, "matchupPeriodId": 5, "home": { "teamId": 2, "totalPoints": 18.0, "totalPointsLive": 18.0 }, "away": { "teamId": 1, "totalPoints": 21.36, "totalPointsLive": 21.36 } },
+    { "id": 18, "matchupPeriodId": 5, "home": { "teamId": 3, "totalPoints": 0 }, "away": { "teamId": 4, "totalPoints": 0 } },
+    { "id": 13, "matchupPeriodId": 4, "home": { "teamId": 1, "totalPoints": 110.2 }, "away": { "teamId": 3, "totalPoints": 97.4 }, "winner": "HOME" }
+  ]
+}

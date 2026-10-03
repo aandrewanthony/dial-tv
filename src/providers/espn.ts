@@ -203,3 +203,59 @@ export function leagueTeams(league: League): Promise<Team[]> {
   }
   return p;
 }
+
+export interface TeamSchedule {
+  team: Team & { standing?: string };
+  events: SportEvent[];
+  /** Bye week number (NFL). */
+  byeWeek?: number;
+}
+
+/**
+ * A team's season schedule (site.api.espn.com/.../teams/{id}/schedule — sends CORS `*`).
+ * Its events are scoreboard-like but scores are objects and broadcasts use the geo shape,
+ * so they are normalized and parsed with parseScoreboard (same ids as the live scoreboard).
+ */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export function parseTeamSchedule(league: League, json: any): TeamSchedule {
+  const t = json?.team ?? {};
+  const events = (json?.events ?? []).map((e: any) => {
+    const c = e?.competitions?.[0] ?? {};
+    return {
+      ...e,
+      status: e.status ?? c.status,
+      competitions: [{
+        ...c,
+        competitors: (c.competitors ?? []).map((x: any) => ({
+          ...x,
+          score: typeof x.score === 'object' && x.score ? x.score.value ?? x.score.displayValue : x.score,
+          team: { ...x.team, logo: x.team?.logo ?? x.team?.logos?.[0]?.href },
+        })),
+        broadcasts: [],
+        geoBroadcasts: c.broadcasts ?? [],
+      }],
+    };
+  });
+  const parsed = parseScoreboard(league, { events }).sort((a, b) => a.start - b.start);
+  const base = team({ team: { ...t, logo: t.logo ?? t.logos?.[0]?.href } });
+  return {
+    team: { ...base, record: typeof t.recordSummary === 'string' ? t.recordSummary : undefined, standing: typeof t.standingSummary === 'string' ? t.standingSummary : undefined },
+    events: parsed,
+    byeWeek: typeof json?.byeWeek === 'number' ? json.byeWeek : undefined,
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const schedCache = new Map<string, { at: number; p: Promise<TeamSchedule> }>();
+
+export function teamSchedule(league: League, teamId: string, maxAgeMs = 10 * 60_000): Promise<TeamSchedule> {
+  const key = `${league}:${teamId}`;
+  const hit = schedCache.get(key);
+  if (hit && Date.now() - hit.at < maxAgeMs) return hit.p;
+  const p = fetch(`${BASE}/${PATHS[league]}/teams/${encodeURIComponent(teamId)}/schedule`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`ESPN ${r.status}`))))
+    .then((j) => parseTeamSchedule(league, j));
+  p.catch(() => schedCache.delete(key));
+  schedCache.set(key, { at: Date.now(), p });
+  return p;
+}

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Bell, Plus, Repeat, Trash2 } from 'lucide-react';
+import { AlertTriangle, Bell, Plus, Repeat, Sparkles, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { orderedChannels, useApp } from '../store/app';
 import type { ScheduleEntry, ScheduleRule } from '../types';
@@ -8,6 +8,8 @@ import { Modal, Toggle, fmtDay, fmtTime, useNow } from '../components/ui';
 import { ChannelPicker } from '../components/ChannelPicker';
 import { leagueLabel } from '../lib/sports';
 import { addRuleEntries } from '../hooks/useEngine';
+import { SmartPlanner } from '../components/sports/SmartPlan';
+import { useRoute } from '../app/router';
 
 const PPM = 1.2; // px per minute → 72px per hour
 const DAY_MIN = 24 * 60;
@@ -26,7 +28,9 @@ export default function SchedulePage() {
   const [day, setDay] = useState(() => startOfDay(Date.now()));
   const [drag, setDrag] = useState<Drag | null>(null);
   const [editing, setEditing] = useState<ScheduleEntry | null>(null);
-  const [tab, setTab] = useState<'day' | 'agenda' | 'rules'>('day');
+  const { param } = useRoute();
+  const [tab, setTab] = useState<'smart' | 'day' | 'agenda' | 'rules'>(param === 'smart' ? 'smart' : 'day');
+  useEffect(() => { if (param === 'smart') setTab('smart'); }, [param]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<Drag | null>(null);
   dragRef.current = drag;
@@ -119,13 +123,15 @@ export default function SchedulePage() {
     <div className="schedulePage">
       <div className="guideBar">
         <div className="chips">
+          <button className={tab === 'smart' ? 'on' : ''} onClick={() => setTab('smart')}><Sparkles /> Smart plan</button>
           <button className={tab === 'day' ? 'on' : ''} onClick={() => setTab('day')}>Day</button>
           <button className={tab === 'agenda' ? 'on' : ''} onClick={() => setTab('agenda')}>Agenda</button>
           <button className={tab === 'rules' ? 'on' : ''} onClick={() => setTab('rules')}><Repeat /> Rules ({rulesCount})</button>
         </div>
         {tab === 'day' && <div className="chips">{days.map((d) => <button key={d} className={d === day ? 'on' : ''} onClick={() => setDay(d)}>{fmtDay(d)}</button>)}</div>}
       </div>
-      {upcomingConflicts > 0 && (
+      {tab === 'smart' && <SmartPlanner />}
+      {upcomingConflicts > 0 && tab !== 'smart' && (
         <div className="banner warn"><AlertTriangle /> {upcomingConflicts} upcoming items overlap. Overlapping blocks are shown side by side — consider Multiview for simultaneous games.</div>
       )}
 
@@ -308,7 +314,7 @@ function Rules() {
         <div className="chips">
           <button className={kind === 'title' ? 'on' : ''} onClick={() => setKind('title')}>Show title</button>
           <button className={kind === 'block' ? 'on' : ''} onClick={() => setKind('block')}>Time block</button>
-          <span className="muted small">Team rules: Sports → Teams → calendar icon</span>
+          <span className="muted small">Team rules: My Teams → Edit teams → calendar icon</span>
         </div>
         <div className="row">
           <input className="field" placeholder={kind === 'title' ? 'e.g. SportsCenter' : 'Label, e.g. Prime time'} value={match} onChange={(e) => setMatch(e.target.value)} />

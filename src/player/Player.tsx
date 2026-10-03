@@ -5,10 +5,13 @@ import {
   PictureInPicture2, RotateCw, Volume2, VolumeX,
 } from 'lucide-react';
 import type { Channel } from '../types';
-import { channelHeaders, desktop, isDesktop, type StreamInfo } from '../lib/net';
-import { useApp } from '../store/app';
+import { channelHeaders, desktop, isDesktop, type DecoderInfo, type StreamInfo } from '../lib/net';
+import { DEFAULT_PLAYBACK, useApp } from '../store/app';
 import { sniffStream, type Engine } from './detect';
 import { isHttpUrl, redactUrl, splitUserinfo } from '../lib/url';
+import { decoderOptions, gateOptions, hlsConfig, levelLimits, machineInfo, mpegtsConfig } from './tuning';
+import { bufferedAhead, bufferedEnd, createGate, type Gate } from './gate';
+import VodControls from './VodControls';
 
 export interface PlayerHandle {
   togglePlay(): void;
@@ -17,6 +20,10 @@ export interface PlayerHandle {
   fullscreen(): void;
   pip(): void;
   toggleStats(): void;
+  /** VOD: jump to an absolute position (seconds). No-op for live channels. */
+  seek?(seconds: number): void;
+  /** VOD: skip forward/back by delta seconds. */
+  seekBy?(delta: number): void;
 }
 
 export interface StreamStats {
@@ -44,6 +51,14 @@ interface Props {
   onTheater?: () => void;
   overlay?: React.ReactNode;
   onActivate?: () => void;
+  /** Movie / episode mode: seek bar, no live-edge assumptions (mpegts isLive:false, hls.js VOD settings). */
+  vod?: boolean;
+  /** Start position in seconds (resume, or joining a "personal channel" mid-movie). */
+  startAt?: number;
+  /** Position updates: about every 5 s while playing, and on pause / seek / end. */
+  onProgress?: (seconds: number, duration: number) => void;
+  /** The movie / episode played to the end. */
+  onEnded?: () => void;
 }
 
 const mse = (t: string) => typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(t);
@@ -64,19 +79,21 @@ export function directPlayable(i: StreamInfo): boolean {
 // Whether ffmpeg really exists (asked once per app run, shared by every player).
 let decoderCheck: Promise<boolean> | undefined;
 let decoderKnown: boolean | undefined;
+let decoderInfo: DecoderInfo | undefined;
 const checkDecoder = () =>
-  (decoderCheck ??= (desktop()?.decoder?.info() ?? Promise.resolve({ available: false }))
-    .then((i) => !!i?.available, () => false)
+  (decoderCheck ??= (desktop()?.decoder?.info() ?? Promise.resolve({ available: false } as DecoderInfo))
+    .then((i) => { decoderInfo = i; return !!i?.available; }, () => false)
     .then((ok) => (decoderKnown = ok)));
 // Streams whose silent-failure check already passed (radio, silent feeds): don't re-check this session.
 const verified = new Set<string>();
 const clientError = (s?: number) => !!s && s >= 400 && s < 500;
 type Mode = 'direct' | 'decoder';
 
-const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted: mutedProp, compact, theater, onTheater, overlay, onActivate }, ref) {
+const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted: mutedProp, compact, theater, onTheater, overlay, onActivate, vod: vodProp, startAt, onProgress, onEnded }, ref) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const gateRef = useRef<Gate | null>(null);
   const [status, setStatus] = useState<Status>('loading');
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
@@ -95,6 +112,24 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
   const [chrome, setChrome] = useState(true);
   const engineRef = useRef<string>('');
   const [engineLabel, setEngineLabel] = useState('');
+
+  // Settings → Playback. A change re-tunes the current channel (movies resume where they were).
+  const pb = useApp((s) => s.settings.playback ?? DEFAULT_PLAYBACK);
+  const tuneKey = JSON.stringify(pb);
+  const pbRef = useRef(pb);
+  pbRef.current = pb;
+
+  // Movies / episodes. The timeline is offset + video.currentTime: the decoder restarts ffmpeg at
+  // the seek target (-ss), so its <video> time starts at 0 again.
+  const [vodActive, setVodActive] = useState(!!vodProp);
+  const [duration, setDuration] = useState(0);
+  const [seekGen, setSeekGen] = useState(0);
+  const startRef = useRef(startAt ?? 0); // where the next attach starts (movies)
+  const offsetRef = useRef(0);
+  const durRef = useRef(0);
+  const vodRef = useRef(!!vodProp);
+  const cbRef = useRef({ onProgress, onEnded });
+  cbRef.current = { onProgress, onEnded };
 
   // Built-in decoder (desktop): converts formats Chromium can't play (MPEG-2, AC-3, E-AC-3, ...)
   // and opens protocols it can't (rtmp, rtsp, udp, ...).
@@ -118,7 +153,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     });
 
   // Channel change: reset during render, so the attach effect never runs with the previous
-  // channel's mode / fallback index.
+  // channel's mode / fallback index / movie position.
   const [shownId, setShownId] = useState(channel.id);
   if (shownId !== channel.id) {
     setShownId(channel.id);
@@ -126,7 +161,13 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     setAttempt(0);
     setMode(initialMode());
     setStreamInfo(null);
+    setVodActive(!!vodProp);
+    setDuration(0);
+    startRef.current = startAt ?? 0;
+    offsetRef.current = 0;
+    durRef.current = 0;
   }
+  vodRef.current = vodActive;
 
   const urls = [channel.url, ...(channel.fallbackUrls ?? [])];
   const url = urls[Math.min(urlIndex, urls.length - 1)];
@@ -142,6 +183,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
+    const pb = pbRef.current;
     let cancelled = false;
     let failed = false; // fail()/decoder switch happen at most once per run
     let destroy: (() => void) | undefined;
@@ -151,7 +193,8 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     let reconnects = 0;
     let netRetries = 0;
     let mediaRetries = 0;
-    let vod = false; // a movie/recording: plays to the end, no live-edge chasing, no reconnect at the end
+    // A movie/recording: plays to the end, no live-edge chasing, no reconnect at the end.
+    let vod = !!vodProp;
     let expectVideo: boolean | undefined; // what the engine found in the stream
     let expectAudio: boolean | undefined;
     setStatus('loading');
@@ -160,6 +203,8 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     setAudio([]);
     setSubs([]);
     setLevel(-1);
+    // Decoder movies restart at startRef (-ss): show that position while it reconnects.
+    offsetRef.current = mode === 'decoder' && vodRef.current ? startRef.current : 0;
 
     const headers = isDesktop() ? channelHeaders(channel) : {};
 
@@ -189,6 +234,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     };
 
     const startPlay = () => {
+      if (cancelled) return;
       v.play().catch((e: unknown) => {
         // Only an autoplay block falls back to muted; AbortError just means a newer load/zap won.
         if (cancelled || (e as Error)?.name !== 'NotAllowedError') return;
@@ -197,6 +243,27 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
         v.play().catch(() => !cancelled && setStatus('paused'));
       });
     };
+    // Start cushion + rebuffer-to-a-cushion after stalls (see gate.ts / tuning.ts).
+    const gate = createGate(v, gateOptions(pb, { vod }), {
+      play: startPlay,
+      onChange: (h) => { if (!cancelled && h) setStatus((s) => (s === 'loading' || s === 'error' ? s : 'buffering')); },
+      nearEnd: () => vod && durRef.current > 0 && offsetRef.current + bufferedEnd(v) >= durRef.current - 1,
+    });
+    gateRef.current = gate;
+    /** Movies: what the engine learned about length / position. */
+    const markVod = (dur?: number) => {
+      vod = true;
+      if (dur && Number.isFinite(dur) && dur > 0) { durRef.current = dur; setDuration(dur); }
+      setVodActive(true);
+    };
+    /** Direct engines: start a movie at startRef once metadata is in. */
+    const seekOnLoad = () => {
+      const at = startRef.current;
+      if (!vod || !(at > 0)) return;
+      const onMeta = () => { if (!cancelled && Math.abs(v.currentTime - at) > 1) v.currentTime = at; };
+      if (v.readyState >= 1) onMeta(); else v.addEventListener('loadedmetadata', onMeta, { once: true });
+    };
+
     // Native engine errors (.mp4/.mkv/.mp3, MSE decode errors) go through the same recovery path.
     const onMediaError = () => {
       if (hlsRef.current) return; // hls.js reports and recovers its own errors
@@ -212,8 +279,14 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
         void desktop()?.decoder?.infoFor?.(url).then((i) => { if (!cancelled && i) setStreamInfo(i); }, () => {});
       }
     };
+    const onMeta = () => {
+      // Movie files played directly (mp4/mkv, or a TS movie with vod) report their length.
+      if (mode !== 'direct' || hlsRef.current || !Number.isFinite(v.duration) || !(v.duration > 0)) return;
+      if (vod || engineRef.current.startsWith('Native')) markVod(v.duration);
+    };
     v.addEventListener('error', onMediaError);
     v.addEventListener('playing', onPlaying);
+    v.addEventListener('loadedmetadata', onMeta);
 
     const sniff = new AbortController();
     (async () => {
@@ -230,9 +303,25 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
         // probe from its cache, so the provider still sees one connection at a time.
         const pi = await desktop()!.decoder!.probe(url, headers).catch(() => null);
         if (cancelled) return;
-        if (pi) { setStreamInfo(pi); vod = !!pi.duration; }
-        // ffmpeg gets the original URL (user:pass@ included) and the playlist headers.
-        const u = await desktop()!.decoder!.url(url, headers);
+        if (pi) {
+          setStreamInfo(pi);
+          if (pi.duration) markVod(pi.duration);
+        }
+        // ffmpeg gets the original URL (user:pass@ included), the playlist headers and how to convert.
+        const at = vod ? Math.max(0, Math.min(startRef.current, durRef.current ? durRef.current - 2 : Infinity)) : 0;
+        const opts = decoderOptions(pb, machineInfo(decoderInfo?.hwEncoder ?? null), { vod, compact, startAt: at });
+        offsetRef.current = opts.ss;
+        if (vod && opts.ss > 0) {
+          // With -ss, copied video starts at the keyframe before the target and everything is shifted so
+          // that keyframe is 0: the audio (cut exactly at ss) starts at the first buffered time instead.
+          const align = () => {
+            if (cancelled || !v.buffered.length) return;
+            const base = v.buffered.start(0);
+            if (base >= 0 && base < 30) offsetRef.current = opts.ss - base;
+          };
+          v.addEventListener('canplay', align, { once: true });
+        }
+        const u = await desktop()!.decoder!.url(url, headers, opts);
         if (cancelled) return;
         if (!u) return fail('Built-in decoder is not available');
         playUrl = u;
@@ -259,20 +348,31 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
         engineRef.current = 'Native HLS';
         setEngineLabel('native-hls');
         v.src = playUrl;
+        seekOnLoad();
       } else if (kind === 'native') {
         engineRef.current = 'Native';
         setEngineLabel('native');
+        v.preload = 'auto';
         v.src = playUrl;
+        seekOnLoad();
       } else if (kind === 'hls') {
         if (!HlsCtor || !HlsCtor.isSupported()) return fail('HLS is not supported in this browser');
-        const hls = new HlsCtor({ enableWorker: true, lowLatencyMode: true, backBufferLength: 30 });
+        const hls = new HlsCtor(hlsConfig(pb, { vod, compact, startAt: vod ? startRef.current : 0 }));
         hlsRef.current = hls;
+        gate.noRebuffer(); // hls.js already starts segments behind live and rides out stalls itself
         engineRef.current = `hls.js ${HlsCtor.version}`;
         setEngineLabel('hls');
         const E = HlsCtor.Events;
         hls.on(E.MANIFEST_PARSED, () => {
           setLevels(hls.levels.map((l, i) => ({ id: i, label: l.height ? `${l.height}p${l.bitrate ? ` · ${kbps(l.bitrate)}` : ''}` : kbps(l.bitrate) })));
+          // Settings → Playback: Max resolution / Start quality.
+          const lim = levelLimits(hls.levels, pb);
+          if (lim.cap >= 0) hls.autoLevelCapping = lim.cap;
+          if (lim.start !== undefined) hls.startLevel = lim.start;
           setLevel(hls.autoLevelEnabled ? -1 : hls.currentLevel);
+        });
+        hls.on(E.LEVEL_LOADED, (_e, data) => {
+          if (data.details && !data.details.live) markVod(data.details.totalduration); // HLS VOD playlist
         });
         hls.on(E.AUDIO_TRACKS_UPDATED, () => {
           setAudio(hls.audioTracks.map((t, i) => ({ id: i, label: t.name || t.lang || `Track ${i + 1}` })));
@@ -286,6 +386,8 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
           expectVideo = !!(data.video || data.audiovideo);
           expectAudio = !!(data.audio || data.audiovideo);
         });
+        // hls.js recovers decode errors by re-attaching a fresh MediaSource: keep playing afterwards.
+        hls.on(E.MEDIA_ATTACHED, () => { if (everPlayed && !cancelled) startPlay(); });
         hls.on(E.FRAG_LOADED, () => { netRetries = 0; }); // recovered: a later drop gets the full retry budget again
         let manifestLoaded = false;
         hls.on(E.MANIFEST_LOADED, () => { manifestLoaded = true; });
@@ -345,8 +447,9 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
             open();
           }, 1000 * 2 ** (reconnects - 1));
         };
+        const tsConfig = mpegtsConfig(pb, { vod, compact, decoder: mode === 'decoder' });
         const open = () => {
-          const p = mpegts.createPlayer({ type: mode === 'direct' && playUrl.toLowerCase().includes('.flv') ? 'flv' : 'mpegts', isLive: !vod, url: playUrl }, { enableWorker: true, liveBufferLatencyChasing: !vod });
+          const p = mpegts.createPlayer({ type: mode === 'direct' && playUrl.toLowerCase().includes('.flv') ? 'flv' : 'mpegts', isLive: !vod, url: playUrl }, tsConfig);
           player = p;
           p.attachMediaElement(v);
           p.on(mpegts.Events.ERROR, (type: string, detail: string, info?: { code?: number }) => {
@@ -362,7 +465,9 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
             expectAudio = mi.hasAudio;
           });
           p.load();
-          startPlay();
+          if (mode === 'direct') seekOnLoad();
+          // First connection: start through the gate; reconnects resume at once (the stall already waited).
+          if (reconnects === 0) gate.start(); else startPlay();
         };
         open();
         destroy = () => {
@@ -371,7 +476,8 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
         };
         return;
       }
-      startPlay();
+      // hls.js starts segments behind live (its own cushion): holding it back only drifts it out of the playlist window.
+      if (hlsRef.current) { gate.cancel(); startPlay(); } else gate.start();
     })().catch((e) => fail(String(e?.message ?? e)));
 
     /** Unknown codecs and no sound: stop playback, probe once (one connection), then decide. */
@@ -400,7 +506,9 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     // If playback hasn't advanced, stop spinning and try the next step instead of buffering forever.
     // In direct mode on desktop, also catch *silent* failures: picture with no sound (AC-3) or
     // sound with no picture (MPEG-2) never raise errors, so check that both are really decoding.
+    // Holding for the buffer cushion counts as progress while video keeps arriving.
     let lastT = -1;
+    let lastEnd = -1;
     let stalledFor = 0;
     let playingFor = 0;
     let sustained = 0;
@@ -408,15 +516,19 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     let vb0 = 0, ab0 = 0;
     const stallLimit = mode === 'decoder' ? 40 : decoderAvailable ? 15 : 25;
     const watchdog = setInterval(() => {
-      if (cancelled || failed || v.paused) return;
-      const advancing = v.currentTime !== lastT && v.readyState >= 3;
+      if (cancelled || failed || v.ended || (v.paused && !gate.holding)) return;
+      const moved = v.currentTime !== lastT && v.readyState >= 2;
+      const end = bufferedEnd(v);
+      const arriving = gate.holding && end > lastEnd + 0.2;
+      const advancing = moved || arriving;
       lastT = v.currentTime;
+      lastEnd = end;
       if (reconnecting) { stalledFor = 0; return; }
       stalledFor = advancing ? 0 : stalledFor + 5;
-      sustained = advancing ? sustained + 5 : 0;
+      sustained = moved ? sustained + 5 : 0;
       if (sustained >= 30) { reconnects = 0; mediaRetries = 0; } // long healthy stretch: full retry budget again
       const media = v as HTMLVideoElement & { webkitVideoDecodedByteCount?: number; webkitAudioDecodedByteCount?: number };
-      if (advancing && mode === 'direct' && avail && !checked) {
+      if (moved && mode === 'direct' && avail && !checked) {
         playingFor += 5;
         const vb = media.webkitVideoDecodedByteCount ?? 0;
         const ab = media.webkitAudioDecodedByteCount ?? 0;
@@ -451,16 +563,19 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
       sniff.abort();
       setEngineLabel('');
       clearInterval(watchdog);
+      gate.destroy();
+      if (gateRef.current === gate) gateRef.current = null;
       v.removeEventListener('error', onMediaError);
       v.removeEventListener('playing', onPlaying);
+      v.removeEventListener('loadedmetadata', onMeta);
       destroy?.();
       v.removeAttribute('src');
       v.load();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, attempt, mode]);
+  }, [url, attempt, mode, tuneKey, seekGen]);
 
-  // Media element state
+  // Media element state (the gate's own pause while it waits for the cushion shows as buffering).
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -470,8 +585,8 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     };
     const offs = [
       on('playing', () => setStatus('playing')),
-      on('pause', () => setStatus((s) => (s === 'error' ? s : 'paused'))),
-      on('waiting', () => setStatus((s) => (s === 'error' ? s : 'buffering'))),
+      on('pause', () => setStatus((s) => (s === 'error' ? s : gateRef.current?.holding ? (s === 'loading' ? s : 'buffering') : 'paused'))),
+      on('waiting', () => setStatus((s) => (s === 'error' || s === 'loading' ? s : 'buffering'))),
     ];
     return () => offs.forEach((f) => f());
   }, []);
@@ -483,6 +598,104 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     v.volume = vol;
   }, [muted, vol]);
 
+  /** Position on the movie timeline. */
+  const position = useCallback(() => offsetRef.current + (videoRef.current?.currentTime ?? 0), []);
+  const totalDuration = useCallback(() => {
+    const v = videoRef.current;
+    if (durRef.current > 0) return durRef.current;
+    return v && Number.isFinite(v.duration) ? v.duration : 0;
+  }, []);
+
+  // Movies: progress (~every 5 s, and on pause / seek / end), the end, and remembering the position
+  // so a re-tune (settings change, decoder switch) resumes there.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !vodActive) return;
+    let last = 0;
+    const report = (force: boolean) => {
+      if (v.readyState < 2) return; // between streams (seek restart / teardown): currentTime means nothing
+      const pos = position();
+      startRef.current = pos;
+      const now = Date.now();
+      if (!force && now - last < 5000) return;
+      last = now;
+      cbRef.current.onProgress?.(pos, totalDuration());
+    };
+    const onTime = () => report(false);
+    const onPause = () => { if (!gateRef.current?.holding) report(true); };
+    const onSeeked = () => report(true);
+    const onEnd = () => {
+      const d = totalDuration();
+      cbRef.current.onProgress?.(d || position(), d);
+      cbRef.current.onEnded?.();
+    };
+    v.addEventListener('timeupdate', onTime);
+    v.addEventListener('pause', onPause);
+    v.addEventListener('seeked', onSeeked);
+    v.addEventListener('ended', onEnd);
+    return () => {
+      v.removeEventListener('timeupdate', onTime);
+      v.removeEventListener('pause', onPause);
+      v.removeEventListener('seeked', onSeeked);
+      v.removeEventListener('ended', onEnd);
+    };
+  }, [vodActive, position, totalDuration]);
+
+  const seek = useCallback((target: number) => {
+    const v = videoRef.current;
+    if (!v || !vodRef.current) return;
+    const dur = totalDuration();
+    const t = Math.max(0, dur > 0 ? Math.min(target, dur - 1) : target);
+    const local = t - offsetRef.current;
+    const inBuffer = (() => { for (let i = 0; i < v.buffered.length; i++) if (v.buffered.start(i) - 0.5 <= local && local < v.buffered.end(i)) return true; return false; })();
+    const wasPaused = v.paused && !gateRef.current?.holding;
+    gateRef.current?.cancel();
+    if (mode === 'decoder' && (local < 0 || !inBuffer)) {
+      // The converter only has what it already sent: restart ffmpeg at the target (-ss).
+      startRef.current = t;
+      setStatus('loading');
+      setSeekGen((g) => g + 1);
+    } else {
+      v.currentTime = local;
+      if (v.paused && !wasPaused) v.play().catch(() => {});
+    }
+    cbRef.current.onProgress?.(t, dur);
+  }, [mode, totalDuration]);
+  const seekBy = useCallback((d: number) => seek(position() + d), [seek, position]);
+
+  // ←/→ skip 10 s (Shift: 30 s) in movies, unless typing or a dialog is open.
+  useEffect(() => {
+    if (!vodActive || compact) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const t = e.target as HTMLElement;
+      if (e.ctrlKey || e.metaKey || e.altKey || t?.closest?.('input, textarea, select, [contenteditable=true]')) return;
+      if (document.querySelector('.scrim, [role=dialog]')) return;
+      e.preventDefault();
+      seekBy((e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 30 : 10));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [vodActive, compact, seekBy]);
+
+  // Live latency / cushion readout (Stream Health, and data-latency for the buffering lab).
+  const latencyNow = useCallback((): number | null => {
+    const v = videoRef.current;
+    if (!v || vodRef.current) return null;
+    const h = hlsRef.current;
+    if (h) return h.latency > 0 ? h.latency : null;
+    return v.buffered.length ? bufferedEnd(v) - v.currentTime : null;
+  }, []);
+  useEffect(() => {
+    const t = setInterval(() => {
+      const w = wrapRef.current;
+      if (!w) return;
+      const l = latencyNow();
+      if (l == null) delete w.dataset.latency; else w.dataset.latency = l.toFixed(2);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [latencyNow]);
+
   // Stats sampling
   useEffect(() => {
     if (!showStats) return;
@@ -492,26 +705,25 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
       const h = hlsRef.current;
       const lvl = h && h.currentLevel >= 0 ? h.levels[h.currentLevel] : undefined;
       const q = v.getVideoPlaybackQuality?.();
-      let ahead = 0;
-      for (let i = 0; i < v.buffered.length; i++) if (v.buffered.start(i) <= v.currentTime && v.buffered.end(i) >= v.currentTime) ahead = v.buffered.end(i) - v.currentTime;
+      const lat = latencyNow();
       setStats({
         resolution: v.videoWidth ? `${v.videoWidth}×${v.videoHeight}` : '—',
         bitrate: kbps(lvl?.bitrate),
         bandwidth: kbps(h?.bandwidthEstimate),
         dropped: q ? `${q.droppedVideoFrames} / ${q.totalVideoFrames}` : '—',
-        buffer: `${ahead.toFixed(1)} s`,
+        buffer: `${bufferedAhead(v).toFixed(1)} s${gateRef.current?.holding ? ' (building cushion)' : ''}`,
         codecs: streamInfo
           ? `${[streamInfo.video, streamInfo.audio].filter(Boolean).join(' + ')}${streamInfo.interlaced ? ' (interlaced)' : ''}${mode === 'decoder' ? ' → h264 + aac' : ''}`
           : lvl ? [lvl.videoCodec, lvl.audioCodec].filter(Boolean).join(', ') || '—' : '—',
-        latency: h?.latency && lvl?.details?.live ? `${h.latency.toFixed(1)} s` : h && !lvl?.details?.live ? 'VOD' : '—',
-        engine: engineRef.current,
+        latency: vodRef.current ? 'VOD' : lat != null ? `${lat.toFixed(1)} s behind live` : '—',
+        engine: `${engineRef.current} · buffer ${pbRef.current.buffer}`,
         url: redactUrl(url),
       });
     };
     sample();
     const t = setInterval(sample, 1000);
     return () => clearInterval(t);
-  }, [showStats, url, streamInfo, mode]);
+  }, [showStats, url, streamInfo, mode, latencyNow]);
 
   // Auto-hide chrome
   useEffect(() => {
@@ -523,6 +735,8 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
+    const g = gateRef.current;
+    if (g?.holding) { g.release(); return; } // impatient: play what's there now
     if (v.paused) v.play().catch(() => {});
     else v.pause();
   }, []);
@@ -553,7 +767,9 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     fullscreen,
     pip,
     toggleStats: () => setShowStats((s) => !s),
-  }), [togglePlay, fullscreen, pip]);
+    seek,
+    seekBy,
+  }), [togglePlay, fullscreen, pip, seek, seekBy]);
 
   const retry = () => {
     setUrlIndex(0);
@@ -561,17 +777,26 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     setAttempt((a) => a + 1);
   };
 
+  const bufferedRanges = useCallback((): [number, number][] => {
+    const v = videoRef.current;
+    if (!v) return [];
+    const out: [number, number][] = [];
+    for (let i = 0; i < v.buffered.length; i++) out.push([offsetRef.current + v.buffered.start(i), offsetRef.current + v.buffered.end(i)]);
+    return out;
+  }, []);
+
   return (
     <div
       ref={wrapRef}
-      className={`player ${compact ? 'compact' : ''} ${chrome || status !== 'playing' ? 'chrome' : ''}`}
+      className={`player ${compact ? 'compact' : ''} ${vodActive && !compact ? 'vod' : ''} ${chrome || status !== 'playing' ? 'chrome' : ''}`}
       data-engine={engineLabel}
       data-mode={mode}
       data-status={status}
+      data-vod={vodActive ? '1' : undefined}
       onMouseMove={() => setChrome(true)}
       onClick={onActivate}
     >
-      <video ref={videoRef} playsInline autoPlay muted={muted} onDoubleClick={fullscreen} onClick={compact ? undefined : togglePlay} />
+      <video ref={videoRef} playsInline muted={muted} onDoubleClick={fullscreen} onClick={compact ? undefined : togglePlay} />
       {overlay}
       {(status === 'loading' || status === 'buffering') && (
         <div className="playerState"><Loader2 className="spin" /><span>{mode === 'decoder' && status === 'loading' ? `Converting${streamInfo ? ` ${[streamInfo.video, streamInfo.audio].filter(Boolean).join(' / ').toUpperCase()}` : ''} with the built-in decoder…` : status === 'loading' ? `Tuning ${channel.name}…` : 'Buffering…'}</span></div>
@@ -589,6 +814,9 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
           <b>STREAM HEALTH</b>
           {Object.entries(stats).map(([k, v]) => <div key={k}><span>{k}</span><code>{v}</code></div>)}
         </div>
+      )}
+      {vodActive && !compact && (
+        <VodControls position={position} buffered={bufferedRanges} duration={duration} paused={status === 'paused'} onSeek={seek} onSkip={seekBy} onToggle={togglePlay} />
       )}
       {!compact && (
         <div className="controls" onClick={(e) => e.stopPropagation()}>

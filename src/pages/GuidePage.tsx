@@ -2,11 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { CalendarPlus, Check, Clock, Play, Repeat, Trophy } from 'lucide-react';
 import { orderedChannels, useApp } from '../store/app';
-import { ChannelMark, Drawer, fmtDay, fmtTime } from '../components/ui';
+import { Drawer, fmtDay, fmtTime } from '../components/ui';
 import { entryFromProgram, HOUR, MIN, startOfDay } from '../lib/scheduler';
 import { navigate, replaceRoute, useRoute } from '../app/router';
 import { useShallow } from 'zustand/react/shallow';
 import type { Program } from '../types';
+import { useTv } from '../store/tv';
+import { asChannel, personalPrograms, TvMark, usePersonalChannels } from '../components/tv/personal';
 
 const ZOOM_PX: Record<30 | 60 | 120, number> = { 30: 9, 60: 5, 120: 3 }; // px per minute
 const CH_COL = 190;
@@ -22,7 +24,11 @@ export default function GuidePage() {
   const update = useApp((s) => s.update);
   const { param } = useRoute();
   const ppm = ZOOM_PX[zoom];
-  const channels = useMemo(() => orderedChannels({ channels: allChannels, channelOrder, hidden }), [allChannels, channelOrder, hidden]);
+  const personalDefs = useTv((s) => s.personal);
+  const durations = useTv((s) => s.durations);
+  const personalChannels = usePersonalChannels();
+  // Live channels only (no movies/episodes), then My Channels.
+  const channels = useMemo(() => [...orderedChannels({ channels: allChannels, channelOrder, hidden }), ...personalChannels], [allChannels, channelOrder, hidden, personalChannels]);
   const [day, setDay] = useState(() => startOfDay(paramTime(param) ?? Date.now()));
   // One-shot scroll target (route param or "Now"); consumed by the layout effect below.
   const pendingJump = useRef<number | undefined>(paramTime(param));
@@ -50,9 +56,10 @@ export default function GuidePage() {
       if (arr) arr.push(p);
       else m.set(p.channelId, [p]);
     }
+    if (!sportsOnly) for (const p of personalDefs) m.set(asChannel(p).id, personalPrograms(p, durations, day, dayEnd));
     for (const arr of m.values()) arr.sort((a, b) => a.start - b.start);
     return m;
-  }, [programs, day, dayEnd, sportsOnly]);
+  }, [programs, day, dayEnd, sportsOnly, personalDefs, durations]);
 
   const rows = sportsOnly ? channels.filter((c) => byChannel.has(c.id)) : channels;
 
@@ -144,7 +151,7 @@ export default function GuidePage() {
             return (
               <div key={c.id} className="gRow" style={{ top: 36 + vr.start, height: ROW_H, width: CH_COL + width }}>
                 <button className="gCh" style={{ width: CH_COL }} onClick={() => { useApp.getState().tune(c.id); navigate('watch'); }}>
-                  <ChannelMark channel={c} size={34} /><div><small>{c.number}</small><b>{c.name}</b></div>
+                  <TvMark channel={c} size={34} /><div><small>{c.number}</small><b>{c.name}</b></div>
                 </button>
                 {progs.map((p) => {
                   const left = CH_COL + ((Math.max(p.start, day) - day) / MIN) * ppm;
@@ -177,7 +184,9 @@ export default function GuidePage() {
 }
 
 function ProgramDrawer({ p, onClose }: { p: Program; onClose: () => void }) {
-  const ch = useApp((s) => s.channels.find((c) => c.id === p.channelId));
+  const liveCh = useApp((s) => s.channels.find((c) => c.id === p.channelId));
+  const personal = useTv((s) => s.personal.find((x) => p.channelId === `my:${x.id}`));
+  const ch = liveCh ?? (personal ? asChannel(personal) : undefined);
   const entryId = `prog:${p.id}`;
   const scheduled = useApp((s) => s.schedule.some((e) => e.id === entryId));
   const ruleExists = useApp((s) => s.rules.some((r) => r.kind === 'title' && r.match.toLowerCase() === p.title.toLowerCase()));

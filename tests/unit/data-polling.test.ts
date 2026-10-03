@@ -20,7 +20,7 @@ beforeEach(() => {
   resetPollState();
   calls = [];
   offline = false;
-  useApp.setState({ ...defaultPersisted(), leagues: ['nba'], games: {}, picks: [] });
+  useApp.setState({ ...defaultPersisted(), leagues: ['nba'], games: {} });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     calls.push(url);
     if (offline) throw new TypeError('Failed to fetch');

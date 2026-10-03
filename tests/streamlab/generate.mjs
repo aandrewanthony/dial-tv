@@ -39,3 +39,19 @@ if (!fs.existsSync(`${out}/hls_mpeg2/index.m3u8`)) {
   run(['-i', `${out}/mpeg2_ac3.ts`, '-c', 'copy', '-f', 'hls', '-hls_time', '6', '-hls_list_size', '0', '-hls_segment_filename', `${out}/hls_mpeg2/s%03d.ts`, `${out}/hls_mpeg2/index.m3u8`]);
 }
 console.log('test media ready in', out);
+
+// Buffering lab (server.mjs /net/...): a 720p H.264 feed with 2 s keyframes for live HLS, plus VOD
+// test movies that Chromium plays natively (MP4 / HLS with AAC) for the seek / startAt checks.
+const more = {
+  'live_h264_aac.ts': ['-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=500:sample_rate=48000', '-t', '60', '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '4M', '-maxrate', '4M', '-bufsize', '4M', '-g', '60', '-keyint_min', '60', '-sc_threshold', '0', '-c:a', 'aac', '-b:a', '128k', '-f', 'mpegts'],
+  'movie_h264_aac.mp4': ['-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=330:sample_rate=48000', '-t', '60', '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '3M', '-g', '50', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart'],
+};
+for (const [name, args] of Object.entries(more)) {
+  if (fs.existsSync(`${out}/${name}`)) continue;
+  try { run([...args, `${out}/${name}`]); } catch { fs.rmSync(`${out}/${name}`, { force: true }); console.warn(`skipped ${name}`); }
+}
+if (!fs.existsSync(`${out}/hls_vod/index.m3u8`) && fs.existsSync(`${out}/movie_h264_aac.mp4`)) {
+  fs.mkdirSync(`${out}/hls_vod`, { recursive: true });
+  run(['-i', `${out}/movie_h264_aac.mp4`, '-c', 'copy', '-f', 'hls', '-hls_time', '4', '-hls_playlist_type', 'vod', '-hls_segment_filename', `${out}/hls_vod/v%03d.ts`, `${out}/hls_vod/index.m3u8`]);
+}
+console.log('buffering lab media ready');

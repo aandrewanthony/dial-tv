@@ -1,7 +1,7 @@
 # CLAUDE HANDOFF — Dial TV
 
 ## Mission
-Personal TV + sports command center for Web, Windows and macOS with one shared React/TypeScript UI. Primary user is a sports fan. No piracy-oriented discovery, DRM circumvention, credential bypass, or restreaming. Picks are a just-for-fun tracker — no real-money wagering, no sportsbook deep links.
+Personal TV + sports command center for Web, Windows and macOS with one shared React/TypeScript UI. Primary user is a sports fan. No piracy-oriented discovery, DRM circumvention, credential bypass, or restreaming. Bets: multi-sportsbook odds (The Odds API, user-supplied key stored in the OS keychain), open-in-sportsbook deep links (no affiliate params), a real-bet tracker, and responsible-gambling tools (loss/stake limits, take-a-break, 1-800-GAMBLER). Dial TV never places bets or handles money.
 
 ## Architecture (v0.2)
 ```
@@ -35,7 +35,20 @@ build/          Icon source (icon.svg) + generated icon.png / icon.ico (npm run 
 ## Done (P1 + sports features)
 Favorites, reorder/hide (dnd), global search, sports hub with live/upcoming/final, favorite teams, Game Day countdowns, multiview 2×2 / 1+3, desktop mini-player (always on top), settings import/export, compact mode + accent theme, parental PIN locks, notifications (web + native desktop), clutch alerts + auto-switch, Smart Sports Mapper, live score bug, watchability ranking, Sleeper fantasy (stakes, red-zone alerts), picks/odds tracker, spoiler shield, score ticker.
 
+## v0.6 (TV / Sports split)
+- Navigation: TV (Live TV, Guide, Movies & Series, My Channels, Multiview) and Sports (Game Day, Scores, My Teams, Fantasy, Bets); Smart Schedule + Settings shared. No scores ticker (removed at the owner's request).
+- VOD: lib/content.ts classifies playlist entries (live / movie / series). Movies & Series library (components/tv/*, store/tv.ts). The Player has VOD props (vod, startAt, onProgress, onEnded) with VodControls, and the decoder seeks with -ss.
+- Cable mode: guide overlay over live TV (G), info banner (B / Enter), personal scheduled channels (lib/personalSchedule.ts, numbers 900+; real durations are learned as items play).
+- Playback: player/tuning.ts maps Settings → Playback (buffer, computer, hw accel, resolution, start quality, deinterlace) to hls.js / mpegts.js / decoder configs. player/gate.ts holds playback until a cushion builds after a stall. The decoder picks its x264 preset by computer level and detects a hardware encoder (nvenc / qsv / amf / videotoolbox).
+- Sports: Bets (providers/oddsapi.ts, store/bets.ts, components/sports/*), onboarding + My Teams, ESPN Fantasy (public leagues) + Sleeper, Smart Schedule planner (lib/scheduler.ts) with auto-tune. Pick'em removed (schema v5).
+- Feature stores use store/persisted.ts; API keys use lib/secrets.ts (safeStorage on desktop).
+- Stream lab: tests/streamlab/check.mjs plays movie files through Movies & Series; buffer.mjs measures stalls on simulated bad networks (/net/jitter, /net/slow); vod.mjs tests VOD seek/startAt.
+
 ## Not done / next
+- Phase 2: a Dial TV-hosted fantasy league (needs a server and accounts; the owner wants it).
+- Private ESPN fantasy leagues (espn_s2 / SWID cookies via the desktop shell).
+- HLS buffering on jittery networks is not improved yet (the lab's HLS channel also throws a Chromium decode error in the baseline).
+- Unit tests for player/tuning.ts and decoder argument generation.
 - **Remote Control mode** (phone → desktop over LAN WebSocket with pairing). Add a small WebSocket server in `electron/main.cjs` + a `/remote` route.
 - **Multiple fantasy platforms** (ESPN private leagues need cookies; Yahoo needs OAuth — do via a server-side or Electron safeStorage token store, never localStorage).
 - **Win probability chart** — `providers/espn.ts#winProbability` is implemented but not yet charted on the game card.

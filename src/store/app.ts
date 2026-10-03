@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type {
-  BetPick, Channel, EpgSource, League, PlaylistSource, Program, ScheduleEntry, ScheduleRule, SportEvent,
+  Channel, EpgSource, League, PlaylistSource, Program, ScheduleEntry, ScheduleRule, SportEvent,
 } from '../types';
 import { kv } from './db';
 import { m3uUrlProvider, mapXmltvPrograms } from '../providers/remote';
@@ -8,7 +8,7 @@ import { parseM3U } from '../lib/m3u';
 import { fetchText } from '../lib/net';
 import { HOUR } from '../lib/scheduler';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export interface Settings {
   clutchAlerts: boolean;
@@ -59,13 +59,22 @@ export const DEFAULT_PLAYBACK: PlaybackSettings = {
   resumeVod: true,
 };
 
+/** Fantasy platforms. Phase 2 seam: a Dial TV-hosted league would be another provider id here (see store/fantasy.ts). */
+export type FantasyPlatform = 'sleeper' | 'espn';
+
+/**
+ * Connected fantasy league. Sleeper: username → userId. ESPN: public league id; `userId` holds the chosen
+ * ESPN team id and `displayName` that team's name.
+ */
 export interface FantasyConfig {
-  provider: 'sleeper';
+  provider: FantasyPlatform;
   username: string;
   userId: string;
   displayName: string;
   leagueId?: string;
   leagueName?: string;
+  /** ESPN: league season (year). */
+  season?: string;
 }
 
 export interface PersistedState {
@@ -89,8 +98,8 @@ export interface PersistedState {
   /** Guide URLs auto-discovered from playlists (url-tvg) that the user removed: never re-add them. */
   dismissedEpgUrls: string[];
   fantasy?: FantasyConfig;
-  picks: BetPick[];
-  pickPlayers: string[];
+  /** First-run sports onboarding finished or skipped. */
+  sportsOnboarded: boolean;
   settings: Settings;
 }
 
@@ -175,8 +184,7 @@ export function defaultPersisted(): PersistedState {
     networkOverrides: {},
     epgManual: {},
     dismissedEpgUrls: [],
-    picks: [],
-    pickPlayers: ['Me', 'Bro'],
+    sportsOnboarded: false,
     settings: DEFAULT_SETTINGS,
   };
 }
@@ -190,7 +198,7 @@ export function migrate(raw: unknown): PersistedState {
   let out: PersistedState = { ...base, ...s, settings: { ...DEFAULT_SETTINGS, ...(s.settings ?? {}), playback: { ...DEFAULT_PLAYBACK, ...(s.settings?.playback ?? {}) } }, version: SCHEMA_VERSION };
   if (v < 2) {
     // v1 → v2: leagues list + pick players were introduced.
-    out = { ...out, leagues: s.leagues?.length ? s.leagues : base.leagues, pickPlayers: s.pickPlayers?.length ? s.pickPlayers : base.pickPlayers };
+    out = { ...out, leagues: s.leagues?.length ? s.leagues : base.leagues };
   }
   if (v < 3) {
     // v2 → v3: no built-in channels. Drop the demo sources and the old free-channel presets.
@@ -208,6 +216,14 @@ export function migrate(raw: unknown): PersistedState {
   if (v < 4 || !Array.isArray(out.dismissedEpgUrls)) {
     // v3 → v4: remembered dismissals of auto-discovered guides.
     out = { ...out, dismissedEpgUrls: Array.isArray(s.dismissedEpgUrls) ? s.dismissedEpgUrls : [] };
+  }
+  if (v < 5) {
+    // v4 → v5: the "Me vs Bro" pick'em was removed (real bets live in the Bets feature store).
+    // Users who already picked teams have effectively been onboarded.
+    const legacy = out as PersistedState & { picks?: unknown; pickPlayers?: unknown };
+    delete legacy.picks;
+    delete legacy.pickPlayers;
+    out = { ...legacy, sportsOnboarded: s.sportsOnboarded ?? out.favTeams.length > 0 };
   }
   return out;
 }
@@ -337,7 +353,7 @@ export const useApp = create<AppState>((set, get) => {
       unmatchedEpg: unmatched,
       xmltvChannels,
       currentId:
-        s.currentId && chIds.has(s.currentId) ? s.currentId : channels.find((c) => c.id === s.lastChannelId)?.id ?? channels[0]?.id,
+        s.currentId && chIds.has(s.currentId) ? s.currentId : channels.find((c) => c.id === s.lastChannelId)?.id ?? (channels.find((c) => !c.kind || c.kind === 'live') ?? channels[0])?.id,
     }));
     void kv.set('cache:channels', channels);
   }
@@ -432,7 +448,7 @@ export const useApp = create<AppState>((set, get) => {
 
 let resetting = false;
 
-/** Wipe all saved data (settings, schedule, picks, caches) and restart fresh. */
+/** Wipe all saved data (settings, schedule, caches) and restart fresh. */
 export async function resetAllData() {
   resetting = true;
   await kv.clear();

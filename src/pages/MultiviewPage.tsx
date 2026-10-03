@@ -10,6 +10,9 @@ import { LockedScreen, useLockedOut } from '../components/ui';
 import { matchBroadcasts } from '../lib/channelMatch';
 import { useRankedGames } from '../hooks/useSports';
 import { navigate } from '../app/router';
+import { useTv } from '../store/tv';
+import { findPersonal, usePersonalChannels } from '../components/tv/personal';
+import { PersonalPlayer } from '../components/tv/PersonalPlayer';
 
 /** 2×2 multiview. Audio follows the focused tile; browsers may struggle beyond 4 HD streams. */
 export default function MultiviewPage() {
@@ -19,7 +22,9 @@ export default function MultiviewPage() {
   const multiview = useApp((s) => s.multiview);
   const [focus, setFocus] = useState(0);
   const [layout, setLayout] = useState<'2x2' | '1+3'>('2x2');
-  const list = useMemo(() => orderedChannels({ channels, channelOrder, hidden }), [channels, channelOrder, hidden]);
+  const personalChannels = usePersonalChannels();
+  // Live channels (no movies/episodes) and My Channels.
+  const list = useMemo(() => [...orderedChannels({ channels, channelOrder, hidden }), ...personalChannels], [channels, channelOrder, hidden, personalChannels]);
   const live = useRankedGames((g) => g.state === 'in');
 
   const setSlot = (i: number, id: string | null) => {
@@ -102,7 +107,7 @@ export default function MultiviewPage() {
       </div>
       <div className={`mvGrid l${layout.replace('+', 'p')}`}>
         {multiview.map((id, i) => {
-          const ch = id ? channels.find((c) => c.id === id) : undefined;
+          const ch = id ? list.find((c) => c.id === id) ?? channels.find((c) => c.id === id) : undefined;
           return (
             <div key={i} className={`mvTile ${focus === i ? 'focus' : ''}`} onClick={() => setFocus(i)}>
               {ch ? (
@@ -122,9 +127,10 @@ export default function MultiviewPage() {
 
 function MvTile({ ch, g, focused, onClear }: { ch: Channel; g?: SportEvent; focused: boolean; onClear: () => void }) {
   const lockedOut = useLockedOut(ch.id);
+  const personal = useTv((s) => findPersonal(s.personal, ch.id));
   return (
     <>
-      {lockedOut ? <LockedScreen /> : <Player channel={ch} compact muted={!focused} overlay={g && <ScoreBug g={g} />} />}
+      {lockedOut ? <LockedScreen /> : personal ? <PersonalPlayer def={personal} compact muted={!focused} /> : <Player channel={ch} compact muted={!focused} overlay={g && <ScoreBug g={g} />} />}
       <div className="mvBar" onClick={(e) => e.stopPropagation()}>
         {focused && <Volume2 className="aud" />}
         <b>{ch.name}</b>

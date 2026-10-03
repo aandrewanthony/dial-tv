@@ -15,12 +15,39 @@ export interface DesktopBridge {
   /** Register request headers the shell adds to this stream's requests (and same-host segments). */
   setStreamHeaders?(url: string, headers: HeaderMap): Promise<boolean>;
   decoder?: {
-    info(): Promise<{ available: boolean }>;
+    info(): Promise<DecoderInfo>;
     probe(url: string, headers?: HeaderMap): Promise<StreamInfo | null>;
-    url(src: string, headers?: HeaderMap): Promise<string | null>;
+    /** Token URL of the converted stream. opts: how to convert (validated again in the main process). */
+    url(src: string, headers?: HeaderMap, opts?: DecoderOptions): Promise<string | null>;
     /** Codecs found by the decoder server's own probe (no extra connection). */
     infoFor?(src: string): Promise<StreamInfo | null>;
   };
+}
+
+/** What the desktop decoder can do on this machine. */
+export interface DecoderInfo {
+  available: boolean;
+  /** Hardware H.264 encoder found by a test encode at startup (h264_nvenc, h264_qsv, h264_amf, h264_videotoolbox), or null. */
+  hwEncoder?: string | null;
+  /** False while that test is still running. */
+  hwChecked?: boolean;
+}
+
+/** How the decoder converts a stream (see player/tuning.ts#decoderOptions). */
+export interface DecoderOptions {
+  /** libx264 speed preset (faster presets use less CPU, slightly lower quality). */
+  preset: 'superfast' | 'veryfast' | 'faster' | 'fast';
+  /** Scale video down to at most this height (0 = keep). */
+  maxHeight: number;
+  deinterlace: 'auto' | 'on' | 'off';
+  /** Use the detected hardware encoder (falls back to libx264 if it fails). */
+  hw: boolean;
+  /** -tune zerolatency + per-packet flushing (Buffer: Low latency only). */
+  lowLatency: boolean;
+  /** Movies: start this many seconds in (ffmpeg -ss before -i). */
+  ss: number;
+  /** Movies: seconds ffmpeg may run ahead of real time (0 = live, no pacing). */
+  lead: number;
 }
 
 /** Codecs of a stream as reported by the desktop decoder's ffmpeg probe. */

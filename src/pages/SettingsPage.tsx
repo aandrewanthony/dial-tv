@@ -1,11 +1,11 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import {
   AlertTriangle, Download, Eye, EyeOff, GripVertical, Heart, Link2, Loader2, Lock, RefreshCw, Trash2, Unlock, Upload,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { migrate, orderedChannels, pickPersisted, resetAllData, sha256, useApp, type Settings } from '../store/app';
+import { DEFAULT_PLAYBACK, migrate, orderedChannels, pickPersisted, resetAllData, sha256, useApp, type PlaybackSettings, type Settings } from '../store/app';
 import { kv } from '../store/db';
 import type { Channel } from '../types';
 import { ChannelMark, Toggle, usePinGuard } from '../components/ui';
@@ -16,7 +16,8 @@ import { redactUrl, safeUrl } from '../lib/url';
 import { LEAGUES } from '../lib/sports';
 import { requestNotifyPermission } from '../lib/notify';
 import { useRoute, navigate } from '../app/router';
-import { isDesktop } from '../lib/net';
+import { desktop, isDesktop, type DecoderInfo } from '../lib/net';
+import { BUFFER_HELP, bufferProfile, machineInfo, resolveComputer } from '../player/tuning';
 
 type Tab = 'sources' | 'channels' | 'mapping' | 'playback' | 'sports' | 'parental' | 'appearance' | 'backup';
 const TABS: [Tab, string][] = [
@@ -276,30 +277,89 @@ function Mapping() {
   );
 }
 
+function Choice<T extends string>({ k, value, options, onPick, disabled }: { k: string; value: T; options: readonly (readonly [T, string])[]; onPick: (v: T) => void; disabled?: boolean }) {
+  return (
+    <div className="chips">
+      {options.map(([v, l]) => <button key={v} data-pb={`${k}:${v}`} disabled={disabled} className={value === v ? 'on' : ''} onClick={() => onPick(v)}>{l}</button>)}
+    </div>
+  );
+}
+
+const HW_NAMES: Record<string, string> = { h264_nvenc: 'NVIDIA NVENC', h264_qsv: 'Intel Quick Sync', h264_amf: 'AMD AMF', h264_videotoolbox: 'Apple VideoToolbox' };
+
 function Playback() {
   const decoder = useApp((s) => s.settings.decoder);
   const n = useApp((s) => s.settings.decoderChannels.length);
+  const pb = useApp((s) => s.settings.playback ?? DEFAULT_PLAYBACK);
+  const setPb = (p: Partial<PlaybackSettings>) => useApp.getState().update((st) => ({ settings: { ...st.settings, playback: { ...DEFAULT_PLAYBACK, ...st.settings.playback, ...p } } }));
+  const [dec, setDec] = useState<DecoderInfo | null>(null);
+  useEffect(() => {
+    let live = true;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const ask = () => desktop()?.decoder?.info().then((i) => {
+      if (!live) return;
+      setDec(i);
+      if (i?.available && !i.hwChecked) t = setTimeout(ask, 1500); // graphics card test still running
+    }, () => {});
+    ask();
+    return () => { live = false; clearTimeout(t); };
+  }, []);
+  const m = machineInfo(dec?.hwEncoder ?? null);
+  const level = resolveComputer(pb.computer, m);
+  const prof = bufferProfile(pb);
+  const enc = !isDesktop() ? 'desktop app only' : !dec ? 'checking…' : !dec.available ? 'decoder not available' : !dec.hwChecked ? 'testing graphics card…' : dec.hwEncoder ? (HW_NAMES[dec.hwEncoder] ?? dec.hwEncoder) : 'none found (uses the CPU)';
   return (
-    <section className="panel">
-      <h2>Playback</h2>
-      <div className="setting">
-        <div>
-          <b>Built-in decoder</b>
-          <span>{isDesktop()
-            ? 'Converts channels the player can\x27t play directly (MPEG-2 video, AC-3 / Dolby, E-AC-3, MP2 audio, and HEVC on PCs without HEVC support). Auto checks each channel and switches only when needed.'
-            : 'Available in the Windows and Mac apps. The web version can\x27t convert video formats.'}</span>
+    <div className="settingsCol">
+      <section className="panel pbPanel">
+        <h2>Playback</h2>
+        <p className="muted">Changes apply right away: the channel that is playing re-tunes (movies continue where they were).</p>
+        <div className="setting">
+          <div><b>Buffer</b><span>{BUFFER_HELP[prof]}</span></div>
+          <Choice k="buffer" value={pb.buffer} onPick={(v) => setPb({ buffer: v })} options={[['auto', 'Auto'], ['low-latency', 'Low latency'], ['balanced', 'Balanced'], ['smooth', 'Smooth'], ['max', 'Max']] as const} />
         </div>
-        <div className="chips">
-          {([['auto', 'Auto'], ['always', 'Always'], ['off', 'Off']] as const).map(([v, l]) => (
-            <button key={v} disabled={!isDesktop()} className={decoder === v ? 'on' : ''} onClick={() => setSettings({ decoder: v })}>{l}</button>
-          ))}
+        <div className="setting">
+          <div><b>This computer</b><span>How hard the built-in decoder may work. Low converts to 720p with the fastest settings; High gives the best picture. Auto chose <b>{level}</b> for {m.threads} CPU threads{m.memoryGb ? ` and ${m.memoryGb}+ GB memory` : ''}.</span></div>
+          <Choice k="computer" value={pb.computer} onPick={(v) => setPb({ computer: v })} options={[['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] as const} />
         </div>
-      </div>
-      <div className="setting">
-        <div><b>Channels using the decoder</b><span>{n ? `${n} channel${n > 1 ? 's' : ''} start with the decoder because they needed it before.` : 'None yet.'}</span></div>
-        <button className="ghost" disabled={!n} onClick={() => setSettings({ decoderChannels: [] })}>Reset</button>
-      </div>
-    </section>
+        <div className="setting">
+          <div><b>Graphics card encoding</b><span>Lets the decoder use the graphics card (NVIDIA, Intel Quick Sync, AMD, Apple) to save CPU. Auto uses it on slower computers and in Multiview. Found: <b>{enc}</b>.</span></div>
+          <Choice k="hwAccel" value={pb.hwAccel} disabled={!isDesktop()} onPick={(v) => setPb({ hwAccel: v })} options={[['auto', 'Auto'], ['on', 'On'], ['off', 'Off']] as const} />
+        </div>
+        <div className="setting">
+          <div><b>Max resolution</b><span>Limit the picture size to save data and CPU on slow connections or computers. Auto picks the best the connection allows.</span></div>
+          <Choice k="maxResolution" value={pb.maxResolution} onPick={(v) => setPb({ maxResolution: v })} options={[['auto', 'Auto'], ['2160', '4K'], ['1080', '1080p'], ['720', '720p'], ['480', '480p']] as const} />
+        </div>
+        <div className="setting">
+          <div><b>Start quality</b><span>For channels with several qualities: Auto measures your connection, Highest looks best from the first second, Lowest starts fastest.</span></div>
+          <Choice k="startQuality" value={pb.startQuality} onPick={(v) => setPb({ startQuality: v })} options={[['auto', 'Auto'], ['highest', 'Highest'], ['lowest', 'Lowest']] as const} />
+        </div>
+        <div className="setting">
+          <div><b>Deinterlace</b><span>Removes the comb lines of broadcast TV (1080i) in the built-in decoder. Auto does it only when the channel is interlaced.</span></div>
+          <Choice k="deinterlace" value={pb.deinterlace} onPick={(v) => setPb({ deinterlace: v })} options={[['auto', 'Auto'], ['on', 'Always'], ['off', 'Off']] as const} />
+        </div>
+        <div className="setting">
+          <div><b>Resume movies &amp; episodes</b><span>Continue where you stopped watching.</span></div>
+          <Toggle label="Resume movies and episodes" on={pb.resumeVod} onChange={(v) => setPb({ resumeVod: v })} />
+        </div>
+      </section>
+      <section className="panel">
+        <h2>Built-in decoder</h2>
+        <div className="setting">
+          <div>
+            <b>Built-in decoder</b>
+            <span>{isDesktop()
+              ? 'Converts channels the player can\x27t play directly (MPEG-2 video, AC-3 / Dolby, E-AC-3, MP2 audio, and HEVC on PCs without HEVC support). Auto checks each channel and switches only when needed.'
+              : 'Available in the Windows and Mac apps. The web version can\x27t convert video formats.'}</span>
+          </div>
+          <Choice k="decoder" value={decoder} disabled={!isDesktop()} onPick={(v) => setSettings({ decoder: v })} options={[['auto', 'Auto'], ['always', 'Always'], ['off', 'Off']] as const} />
+        </div>
+        <div className="setting">
+          <div><b>Channels using the decoder</b><span>{n ? `${n} channel${n > 1 ? 's' : ''} start with the decoder because they needed it before.` : 'None yet.'}</span></div>
+          <button className="ghost" disabled={!n} onClick={() => setSettings({ decoderChannels: [] })}>Reset</button>
+        </div>
+        <p className="muted small">This computer: {m.threads} CPU threads{m.memoryGb ? ` · ${m.memoryGb}+ GB memory` : ''} · graphics card encoder: {enc}</p>
+      </section>
+    </div>
   );
 }
 
@@ -400,14 +460,14 @@ function Backup() {
   return (
     <section className="panel">
       <h2>Backup &amp; transfer</h2>
-      <p className="muted">Export favorites, schedule, rules, picks, mappings and source list to a JSON file — use it to move settings between the web app and desktop. Playlist URLs may contain your provider login, so keep the file private. Imported local playlist files must be re-added.</p>
+      <p className="muted">Export favorites, schedule, rules, bets, mappings and source list to a JSON file — use it to move settings between the web app and desktop. Playlist URLs may contain your provider login, so keep the file private. Imported local playlist files must be re-added.</p>
       <div className="row">
         <button className="primary" onClick={exportBundle}><Download /> Export settings</button>
         <label className="btnLike"><Upload /> Import settings<input type="file" accept=".json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importBundle(f); }} /></label>
       </div>
       {msg && <p>{msg}</p>}
       <div className="setting">
-        <div><b>Reset all data</b><span>Erase favorites, teams, schedule, picks, playlists and settings on this device and start fresh.</span></div>
+        <div><b>Reset all data</b><span>Erase favorites, teams, schedule, bets, playlists and settings on this device and start fresh.</span></div>
         <button className="ghost danger" onClick={() => { if (confirm('Erase all Dial TV data on this device?')) void resetAllData(); }}>Reset</button>
       </div>
       <p className="muted small">Schema v{version}</p>

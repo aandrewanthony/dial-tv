@@ -11,7 +11,7 @@ describe('persistence', () => {
     expect(v1.version).toBe(SCHEMA_VERSION);
     expect(v1.favorites).toEqual(['a']);
     expect(v1.leagues.length).toBeGreaterThan(0);
-    expect(v1.pickPlayers).toEqual(['Me', 'Bro']);
+    expect('pickPlayers' in v1).toBe(false); // pick'em removed in v5
     expect(v1.settings.spoilerShield).toBe(true);
     expect(v1.settings.guideZoom).toBe(60);
   });

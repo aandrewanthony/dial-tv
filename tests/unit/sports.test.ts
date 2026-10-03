@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseScoreboard } from '../../src/providers/espn';
-import { clutchInfo, gradePick, payout, recordFor, spreadFor } from '../../src/lib/sports';
+import { clutchInfo, gradeLeg, payout, spreadFor, type BetLeg } from '../../src/lib/sports';
 import { canonicalNetwork, matchBroadcasts, matchNetwork } from '../../src/lib/channelMatch';
 import { stakesByGame } from '../../src/store/fantasy';
-import type { BetPick, Channel, SportEvent } from '../../src/types';
+import type { Channel, SportEvent } from '../../src/types';
 
 const espn = JSON.parse(readFileSync(resolve('tests/fixtures/espn-nfl.json'), 'utf8'));
 
@@ -54,32 +54,25 @@ describe('clutch detection', () => {
   });
 });
 
-describe('picks', () => {
-  const pick = (o: Partial<BetPick>): BetPick => ({ id: 'x', player: 'Me', eventId: 'nfl:1', league: 'nfl', market: 'spread', side: 'NYJ', units: 1, createdAt: 0, label: '', ...o });
+describe('bet legs', () => {
+  const leg = (o: Partial<BetLeg>): Pick<BetLeg, 'market' | 'side' | 'line'> => ({ market: 'spread', side: 'NYJ', ...o });
   const final = base({ state: 'post', homeScore: 24, awayScore: 21 });
 
   it('grades spreads incl. pushes', () => {
-    expect(gradePick(pick({ line: 3.5 }), final)).toBe('win'); // NYJ +3.5 lose by 3
-    expect(gradePick(pick({ line: 3 }), final)).toBe('push');
-    expect(gradePick(pick({ line: 2.5 }), final)).toBe('loss');
-    expect(gradePick(pick({ side: 'CHI', line: -2.5 }), final)).toBe('win');
+    expect(gradeLeg(leg({ line: 3.5 }), final)).toBe('win'); // NYJ +3.5 lose by 3
+    expect(gradeLeg(leg({ line: 3 }), final)).toBe('push');
+    expect(gradeLeg(leg({ line: 2.5 }), final)).toBe('loss');
+    expect(gradeLeg(leg({ side: 'CHI', line: -2.5 }), final)).toBe('win');
   });
   it('grades moneyline and totals; ignores non-final games', () => {
-    expect(gradePick(pick({ market: 'moneyline', side: 'CHI' }), final)).toBe('win');
-    expect(gradePick(pick({ market: 'total', side: 'over', line: 44.5 }), final)).toBe('win');
-    expect(gradePick(pick({ market: 'total', side: 'under', line: 44.5 }), final)).toBe('loss');
-    expect(gradePick(pick({}), base({}))).toBeUndefined();
+    expect(gradeLeg(leg({ market: 'moneyline', side: 'CHI' }), final)).toBe('win');
+    expect(gradeLeg(leg({ market: 'total', side: 'over', line: 44.5 }), final)).toBe('win');
+    expect(gradeLeg(leg({ market: 'total', side: 'under', line: 44.5 }), final)).toBe('loss');
+    expect(gradeLeg(leg({ line: 3 }), base({}))).toBeUndefined();
   });
-  it('computes payouts and records with streaks', () => {
+  it('computes payouts', () => {
     expect(payout(1, '-110')).toBeCloseTo(0.909, 3);
     expect(payout(2, '+150')).toBe(3);
-    const r = recordFor('Me', [
-      pick({ id: '1', createdAt: 1, result: 'win' }), pick({ id: '2', createdAt: 2, result: 'loss' }),
-      pick({ id: '3', createdAt: 3, result: 'win', price: '+200' }), pick({ id: '4', createdAt: 4, result: 'win' }),
-      pick({ id: '5', createdAt: 5 }), pick({ id: '6', player: 'Bro', result: 'win' }),
-    ]);
-    expect(r).toMatchObject({ wins: 3, losses: 1, pending: 1, streak: 'W2' });
-    expect(r.units).toBeCloseTo(0.909 - 1 + 2 + 0.909, 2);
   });
   it('derives spread from either side', () => {
     const g = base({ odds: { provider: 'X', spread: 4.5, favoriteAbbr: 'NYJ' } });
