@@ -1,0 +1,12 @@
+DIAL TV FOR WINDOWS
+===================
+
+1. Right-click the zip you downloaded and choose "Extract All..." (don't run it from inside the zip).
+2. Open the extracted folder and double-click "Dial TV".
+3. Click "Install". Dial TV installs itself for your account with Start menu and desktop
+   shortcuts, then opens. You can delete the zip and extracted folder afterwards.
+
+Updating: download the new zip and do the same. "Update" keeps your settings, playlists and picks.
+Uninstalling: Windows Settings > Apps > Installed apps > Dial TV > Uninstall.
+
+If Windows SmartScreen shows "Windows protected your PC": click "More info" > "Run anyway".

@@ -1,7 +1,7 @@
 {
   "name": "dial-tv",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.5.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -70,18 +70,6 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
           "target": "zip",
           "arch": [
             "x64"
@@ -97,24 +85,19 @@
           "filter": [
             "ffmpeg.exe"
           ]
+        },
+        {
+          "from": "build/icon.ico",
+          "to": "icon.ico"
         }
       ],
-      "artifactName": "Dial-TV-${version}-win.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": "always",
-      "createStartMenuShortcut": true,
-      "shortcutName": "Dial TV",
-      "artifactName": "Dial-TV-Setup-${version}.${ext}",
-      "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico",
-      "deleteAppDataOnUninstall": false
-    },
-    "portable": {
-      "artifactName": "Dial-TV-Portable-${version}.${ext}"
+      "artifactName": "Dial-TV-${version}-win.${ext}",
+      "extraFiles": [
+        {
+          "from": "build/win/READ ME FIRST.txt",
+          "to": "READ ME FIRST.txt"
+        }
+      ]
     },
     "mac": {
       "target": [

@@ -23,14 +23,18 @@ npm run test:e2e       # Playwright flows (ESPN/Sleeper mocked)
 ```bash
 npm run dist:win
 ```
-Output in `release/`:
-- `Dial-TV-Setup-<ver>.exe`: installer (Start menu + desktop shortcut, uninstaller).
-- `Dial-TV-Portable-<ver>.exe`: single file, no install.
-- `Dial TV-<ver>-win.zip`: unzip-and-run folder.
+Output: `release/Dial-TV-<ver>-win.zip`. **There is deliberately no installer .exe.** Smart App Control
+blocks unsigned installer and portable executables, because every build is a new file Windows has never seen.
+The zip holds only trusted files:
+- `Dial TV.exe` is byte-for-byte the official Electron 33.2.0 exe (`signAndEditExecutable` and `asar` are off).
+- `resources/ffmpeg/ffmpeg.exe` is the stock ffmpeg-static build.
 
-`signAndEditExecutable` is off and `asar` is off, so `Dial TV.exe` is byte-for-byte the official Electron 33.2.0 exe. Smart App Control trusts that file. With asar on, electron-builder patches an integrity stamp into the exe, every build gets a new unknown hash, and Smart App Control blocks it (seen with 0.3.0). The build and both exes have been
-verified to run on this PC with Smart App Control enforced. Without a code-signing certificate, Windows SmartScreen
-may show "Windows protected your PC". Click **More info → Run anyway** once.
+**Self-installer** (`electron/installer.cjs`): the user extracts the zip and opens `Dial TV.exe`, which offers to
+Install/Update. It then copies itself to `%LOCALAPPDATA%ProgramsDial TV`, creates Start menu and desktop
+shortcuts, and registers an Installed-apps entry whose Uninstall runs `Dial TV.exe --uninstall`. It replaces older
+NSIS-installed copies and their uninstall entries. Verify the whole cycle with
+`powershell -File tests/install/win-install-test.ps1` (mark of the web → install → shortcuts → launch → update →
+uninstall → zero Smart App Control blocks; uses isolated locations).
 
 ## Mac app (built by GitHub Actions on a real Mac)
 Workflow: `.github/workflows/desktop.yml`. GitHub → **Actions → Desktop apps → Run workflow**, or push a tag:

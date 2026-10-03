@@ -4,6 +4,7 @@ const { app, BrowserWindow, ipcMain, session, shell, Menu } = require('electron'
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const decoder = require('./decoder.cjs');
+const installer = require('./installer.cjs');
 const { cleanHeader, VLC_UA } = decoder;
 
 const isDev = !app.isPackaged && process.env.DIAL_DEV_URL;
@@ -175,24 +176,24 @@ ipcMain.handle('dial:mini-player', (_e, on) => {
 ipcMain.handle('dial:version', () => app.getVersion());
 
 // Single instance: a second launch focuses the existing window.
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
-} else {
-  app.on('second-instance', () => {
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    } else if (app.isReady()) {
-      createWindow();
-    }
-  });
-  app.setAppUserModelId('com.dialtv.player'); // Windows notifications + taskbar grouping
-  app.whenReady().then(() => {
-    if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
-    allowCrossOrigin();
-    decoder.start(app, ipcMain);
+const gotLock = app.requestSingleInstanceLock();
+app.on('second-instance', () => {
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  } else if (app.isReady() && gotLock) {
     createWindow();
-    app.on('activate', () => { if (!win) createWindow(); });
-  });
-  app.on('window-all-closed', () => process.platform !== 'darwin' && app.quit());
-}
+  }
+});
+app.setAppUserModelId('com.dialtv.player'); // Windows notifications + taskbar grouping
+app.whenReady().then(async () => {
+  // Windows: install/update/uninstall itself from the zip (no unsigned installer exe to block).
+  if (await installer.handleStartup({ hasLock: gotLock })) return app.quit();
+  if (!gotLock) return app.quit();
+  if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
+  allowCrossOrigin();
+  decoder.start(app, ipcMain);
+  createWindow();
+  app.on('activate', () => { if (!win) createWindow(); });
+});
+app.on('window-all-closed', () => process.platform !== 'darwin' && app.quit());

@@ -116,13 +116,13 @@ jobs:
           Start-Sleep 15
           if ($p.HasExited) { Write-Error "app exited early"; exit 1 }
           Stop-Process -Id $p.Id -Force
+      - name: Self-installer (zip with Mark of the Web, install, shortcuts, launch, update, uninstall)
+        shell: pwsh
+        run: ./tests/install/win-install-test.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: Dial-TV-windows
-          path: |
-            release/Dial-TV-Setup-*.exe
-            release/Dial-TV-Portable-*.exe
-            release/Dial-TV-*-win.zip
+          path: release/Dial-TV-*-win.zip
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
@@ -137,4 +137,3 @@ jobs:
           files: |
             out/*.dmg
             out/*.zip
-            out/*.exe
