@@ -1,0 +1,2 @@
+import type {Channel} from '../data/demo';
+export function parseM3U(text:string):Channel[]{const lines=text.split(/\r?\n/);const out:Channel[]=[];let meta='';for(const line of lines){if(line.startsWith('#EXTINF'))meta=line;else if(line.trim()&&!line.startsWith('#')&&meta){const name=meta.split(',').pop()?.trim()||`Channel ${out.length+1}`;const group=meta.match(/group-title="([^"]*)"/)?.[1]||'Imported';out.push({id:`import-${out.length}`,number:500+out.length,name,group,logo:name.slice(0,2).toUpperCase(),url:line.trim()});meta='';}}return out;}

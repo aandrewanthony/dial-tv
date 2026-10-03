@@ -1,0 +1,2 @@
+import {useEffect,useRef} from 'react';import Hls from 'hls.js';import type{Channel}from'../data/demo';
+export default function Player({channel}:{channel:Channel}){const ref=useRef<HTMLVideoElement>(null);useEffect(()=>{const v=ref.current;if(!v)return;let h:Hls|undefined;if(v.canPlayType('application/vnd.apple.mpegurl'))v.src=channel.url;else if(Hls.isSupported()){h=new Hls();h.loadSource(channel.url);h.attachMedia(v)};v.play().catch(()=>{});return()=>h?.destroy()},[channel]);return <video ref={ref} controls autoPlay playsInline/>}
