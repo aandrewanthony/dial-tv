@@ -28,7 +28,7 @@ Output in `release/`:
 - `Dial-TV-Portable-<ver>.exe`: single file, no install.
 - `Dial TV-<ver>-win.zip`: unzip-and-run folder.
 
-`signAndEditExecutable` is off, so no code-signing tools run during the build. The build and both exes have been
+`signAndEditExecutable` is off and `asar` is off, so `Dial TV.exe` is byte-for-byte the official Electron 33.2.0 exe. Smart App Control trusts that file. With asar on, electron-builder patches an integrity stamp into the exe, every build gets a new unknown hash, and Smart App Control blocks it (seen with 0.3.0). The build and both exes have been
 verified to run on this PC with Smart App Control enforced. Without a code-signing certificate, Windows SmartScreen
 may show "Windows protected your PC". Click **More info → Run anyway** once.
 

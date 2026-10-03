@@ -1,7 +1,7 @@
 {
   "name": "dial-tv",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -64,7 +64,7 @@
       "package.json",
       "!**/*.map"
     ],
-    "asar": true,
+    "asar": false,
     "win": {
       "target": [
         {
