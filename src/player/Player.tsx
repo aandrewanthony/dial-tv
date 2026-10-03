@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import type { Channel } from '../types';
 import { isDesktop } from '../lib/net';
+import { detectEngine } from './detect';
 import { redactUrl } from '../lib/url';
 
 export interface PlayerHandle {
@@ -33,13 +34,6 @@ type Status = 'loading' | 'playing' | 'paused' | 'buffering' | 'error';
 interface Track { id: number; label: string }
 
 const kbps = (b?: number) => (b ? (b >= 1e6 ? `${(b / 1e6).toFixed(1)} Mbps` : `${Math.round(b / 1e3)} kbps`) : '—');
-
-function engineFor(url: string): 'hls' | 'mpegts' | 'native' {
-  const path = url.split('?')[0].toLowerCase();
-  if (/\.(ts|flv)$/.test(path)) return 'mpegts';
-  if (/\.(mp4|webm|mov|m4v)$/.test(path)) return 'native';
-  return 'hls';
-}
 
 interface Props {
   channel: Channel;
@@ -106,8 +100,11 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
       setStatus('error');
     };
 
-    const kind = engineFor(url);
+    const probe = new AbortController();
     (async () => {
+      // Links without an extension (common in IPTV) are identified by their first bytes.
+      const kind = await detectEngine(url, probe.signal);
+      if (cancelled) return;
       // Prefer hls.js (quality/audio/subtitle control + stats); fall back to native HLS where MSE is missing (iOS Safari).
       const HlsCtor = kind === 'hls' ? (await import('hls.js')).default : undefined;
       if (cancelled) return;
@@ -212,6 +209,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
 
     return () => {
       cancelled = true;
+      probe.abort();
       clearInterval(watchdog);
       destroy?.();
       v.removeAttribute('src');

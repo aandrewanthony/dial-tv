@@ -4,6 +4,9 @@ const { app, BrowserWindow, ipcMain, session, shell, Menu } = require('electron'
 const path = require('node:path');
 
 const isDev = !app.isPackaged && process.env.DIAL_DEV_URL;
+
+// Separate profile (data + single-instance lock) for testing next to an installed copy.
+if (process.env.DIAL_PROFILE) app.setPath('userData', path.join(app.getPath('temp'), 'dial-tv-' + process.env.DIAL_PROFILE));
 let win;
 
 /**
