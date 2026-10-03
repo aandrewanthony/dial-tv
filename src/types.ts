@@ -19,6 +19,12 @@ export interface Channel {
   referrer?: string;
   /** Other request headers from the playlist (Origin, Cookie, ...): #EXTVLCOPT, #EXTHTTP, #KODIPROP, |pipe options. */
   headers?: Record<string, string>;
+  /** Live channel (default), movie, or series episode: see lib/content.ts. */
+  kind?: 'live' | 'movie' | 'series';
+  /** Movies/episodes: cleaned title and year. */
+  title?: string;
+  year?: number;
+  series?: { show: string; season: number; episode: number };
 }
 
 export interface Program {

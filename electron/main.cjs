@@ -1,6 +1,7 @@
 // Dial TV desktop shell (Electron). Loads the built web app from dist/ and gives it
 // what a browser can't: access to IPTV hosts that don't send CORS headers.
-const { app, BrowserWindow, ipcMain, session, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell, Menu, safeStorage } = require('electron');
+const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const decoder = require('./decoder.cjs');
@@ -174,6 +175,28 @@ ipcMain.handle('dial:mini-player', (_e, on) => {
   return on;
 });
 ipcMain.handle('dial:version', () => app.getVersion());
+
+// API keys (e.g. The Odds API) encrypted with the OS keychain (Windows DPAPI / macOS Keychain).
+const secretsFile = () => path.join(app.getPath('userData'), 'secrets.json');
+const readSecrets = () => { try { return JSON.parse(fs.readFileSync(secretsFile(), 'utf8')); } catch { return {}; } };
+const validName = (n) => typeof n === 'string' && /^[a-z0-9_-]{1,40}$/.test(n);
+ipcMain.handle('dial:secret-get', (e, name) => {
+  if (!appContents.has(e.sender.id) || !validName(name)) return null;
+  const enc = readSecrets()[name];
+  if (!enc) return null;
+  try { return safeStorage.decryptString(Buffer.from(enc, 'base64')); } catch { return null; }
+});
+ipcMain.handle('dial:secret-set', (e, name, value) => {
+  if (!appContents.has(e.sender.id) || !validName(name)) return false;
+  const all = readSecrets();
+  if (value == null || value === '') delete all[name];
+  else {
+    if (!safeStorage.isEncryptionAvailable() || typeof value !== 'string' || value.length > 4096) return false;
+    all[name] = safeStorage.encryptString(value).toString('base64');
+  }
+  fs.writeFileSync(secretsFile(), JSON.stringify(all), { mode: 0o600 });
+  return true;
+});
 
 // Single instance: a second launch focuses the existing window.
 const gotLock = app.requestSingleInstanceLock();

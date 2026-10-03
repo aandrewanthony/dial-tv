@@ -1,11 +1,21 @@
 import { useEffect, useState } from 'react';
 
-export type Route = 'home' | 'watch' | 'guide' | 'sports' | 'fantasy' | 'picks' | 'multiview' | 'schedule' | 'settings';
-export const ROUTES: Route[] = ['home', 'watch', 'guide', 'sports', 'fantasy', 'picks', 'multiview', 'schedule', 'settings'];
+export type Route =
+  // TV
+  | 'watch' | 'guide' | 'movies' | 'channels' | 'multiview'
+  // Sports
+  | 'home' | 'sports' | 'teams' | 'fantasy' | 'bets'
+  // Shared
+  | 'schedule' | 'settings';
+export const ROUTES: Route[] = ['watch', 'guide', 'movies', 'channels', 'multiview', 'home', 'sports', 'teams', 'fantasy', 'bets', 'schedule', 'settings'];
+export type Section = 'tv' | 'sports';
+export const TV_ROUTES: Route[] = ['watch', 'guide', 'movies', 'channels', 'multiview'];
+export const SPORTS_ROUTES: Route[] = ['home', 'sports', 'teams', 'fantasy', 'bets'];
+export const sectionOf = (r: Route): Section | null => (TV_ROUTES.includes(r) ? 'tv' : SPORTS_ROUTES.includes(r) ? 'sports' : null);
 
 function parse(): { route: Route; param?: string } {
   const [r, param] = location.hash.replace(/^#\/?/, '').split('/');
-  return { route: (ROUTES as string[]).includes(r) ? (r as Route) : 'home', param: param ? decodeURIComponent(param) : undefined };
+  return { route: (ROUTES as string[]).includes(r) ? (r as Route) : 'watch', param: param ? decodeURIComponent(param) : undefined };
 }
 
 export function navigate(route: Route, param?: string) {

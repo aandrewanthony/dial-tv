@@ -38,8 +38,9 @@ test('navigates every page without runtime errors', async ({ page }) => {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/');
   for (const [hash, heading] of [
-    ['home', 'Your Sports Command Center'], ['watch', 'Live Television'], ['guide', 'Program Guide'], ['sports', 'Sports Center'],
-    ['fantasy', 'Fantasy Live'], ['picks', 'Picks & Odds'], ['multiview', 'Multiview'], ['schedule', 'My Schedule'], ['settings', 'Settings'],
+    ['watch', 'Live TV'], ['guide', 'Program Guide'], ['movies', 'Movies & Series'], ['channels', 'My Channels'], ['multiview', 'Multiview'],
+    ['home', 'Your Sports Command Center'], ['sports', 'Scores'], ['teams', 'My Teams'], ['fantasy', 'Fantasy Live'], ['bets', 'Bets & Odds'],
+    ['schedule', 'Smart Schedule'], ['settings', 'Settings'],
   ]) {
     await page.goto(`/#/${hash}`);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(heading);
@@ -55,7 +56,7 @@ test('sports page shows mocked games with odds and the ticker', async ({ page })
   await expect(page.locator('.bottomLine')).toContainText('PIT 24 · CLE 27');
 });
 
-test('pick flow: make a spread pick and see it in the ledger and leaderboard', async ({ page }) => {
+test.skip('pick flow (removed: replaced by Bets): make a spread pick and see it in the ledger and leaderboard', async ({ page }) => {
   await page.goto('/#/picks');
   const btn = page.locator('.oddBtn', { hasText: '-4.5' }).first();
   await btn.click();

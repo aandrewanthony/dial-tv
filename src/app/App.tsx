@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, CalendarDays, Clock, Gamepad2, Grid2x2, Home, Lock, Radio, Search, Settings, Ticket, Trophy, Tv, X, Flame, Bell, Zap,
+  AlertTriangle, CalendarDays, CalendarClock, Clapperboard, Gamepad2, Grid2x2, Home, ListVideo, Lock, Radio, Search, Settings, Shield, Ticket, Trophy, Tv, X, Flame, Bell, Zap,
 } from 'lucide-react';
-import { navigate, useRoute, type Route } from './router';
+import { navigate, sectionOf, useRoute, type Route, type Section } from './router';
 import { orderedChannels, sha256, showScore, useApp } from '../store/app';
 import { useEngine } from '../hooks/useEngine';
 import { SearchPalette } from '../components/SearchPalette';
@@ -14,32 +14,47 @@ import WatchPage from '../pages/WatchPage';
 const GuidePage = lazy(() => import('../pages/GuidePage'));
 const SportsPage = lazy(() => import('../pages/SportsPage'));
 const FantasyPage = lazy(() => import('../pages/FantasyPage'));
-const PicksPage = lazy(() => import('../pages/PicksPage'));
+const BetsPage = lazy(() => import('../pages/BetsPage'));
+const MoviesPage = lazy(() => import('../pages/MoviesPage'));
+const ChannelsPage = lazy(() => import('../pages/ChannelsPage'));
+const TeamsPage = lazy(() => import('../pages/TeamsPage'));
 const MultiviewPage = lazy(() => import('../pages/MultiviewPage'));
 const SchedulePage = lazy(() => import('../pages/SchedulePage'));
 const SettingsPage = lazy(() => import('../pages/SettingsPage'));
 
-const NAV: [Route, typeof Tv, string][] = [
-  ['home', Home, 'Game Day'],
-  ['watch', Tv, 'Watch'],
-  ['guide', CalendarDays, 'Guide'],
-  ['sports', Trophy, 'Sports'],
-  ['fantasy', Gamepad2, 'Fantasy'],
-  ['picks', Ticket, 'Picks'],
-  ['multiview', Grid2x2, 'Multiview'],
-  ['schedule', Clock, 'Schedule'],
+const NAV: Record<Section, [Route, typeof Tv, string][]> = {
+  tv: [
+    ['watch', Tv, 'Live TV'],
+    ['guide', CalendarDays, 'Guide'],
+    ['movies', Clapperboard, 'Movies & Series'],
+    ['channels', ListVideo, 'My Channels'],
+    ['multiview', Grid2x2, 'Multiview'],
+  ],
+  sports: [
+    ['home', Home, 'Game Day'],
+    ['sports', Trophy, 'Scores'],
+    ['teams', Shield, 'My Teams'],
+    ['fantasy', Gamepad2, 'Fantasy'],
+    ['bets', Ticket, 'Bets'],
+  ],
+};
+const SHARED_NAV: [Route, typeof Tv, string][] = [
+  ['schedule', CalendarClock, 'Smart Schedule'],
   ['settings', Settings, 'Settings'],
 ];
 
 const TITLES: Record<Route, [string, string]> = {
   home: ['GAME DAY', 'Your Sports Command Center'],
-  watch: ['LIVE', 'Live Television'],
+  watch: ['LIVE', 'Live TV'],
   guide: ['LISTINGS', 'Program Guide'],
-  sports: ['SCORES', 'Sports Center'],
-  fantasy: ['SLEEPER', 'Fantasy Live'],
-  picks: ['PICK’EM', 'Picks & Odds'],
+  sports: ['SCORES', 'Scores'],
+  fantasy: ['FANTASY', 'Fantasy Live'],
+  bets: ['SPORTSBOOKS', 'Bets & Odds'],
+  movies: ['ON DEMAND', 'Movies & Series'],
+  channels: ['CABLE MODE', 'My Channels'],
+  teams: ['FAVORITES', 'My Teams'],
   multiview: ['2×2', 'Multiview'],
-  schedule: ['PLANNER', 'My Schedule'],
+  schedule: ['PLANNER', 'Smart Schedule'],
   settings: ['SYSTEM', 'Settings'],
 };
 
@@ -64,13 +79,20 @@ export default function App() {
   }, [accent]);
 
   const [eyebrow, title] = TITLES[route];
+  // Remember which section you were in when on a shared page (Schedule / Settings).
+  const [section, setSection] = useState<Section>(() => sectionOf(route) ?? 'tv');
+  useEffect(() => { const s = sectionOf(route); if (s) setSection(s); }, [route]);
 
   return (
     <div className={`app ${density} ${theater && route === 'watch' ? 'theater' : ''}`}>
       <aside className="nav">
         <div className="brand"><Radio />DIAL<span>TV</span></div>
-        {NAV.map(([id, Icon, label]) => (
-          <button key={id} className={route === id ? 'active' : ''} onClick={() => navigate(id)}>
+        <div className="sectionSwitch" role="tablist" aria-label="Section">
+          <button role="tab" aria-selected={section === 'tv'} className={section === 'tv' ? 'on' : ''} onClick={() => navigate('watch')}><Tv /> TV</button>
+          <button role="tab" aria-selected={section === 'sports'} className={section === 'sports' ? 'on' : ''} onClick={() => navigate('home')}><Trophy /> Sports</button>
+        </div>
+        {[...NAV[section], ...SHARED_NAV].map(([id, Icon, label], i) => (
+          <button key={id} className={`${route === id ? 'active' : ''} ${i === NAV[section].length ? 'navGap' : ''}`} onClick={() => navigate(id)}>
             <Icon />{label}
             {id === 'sports' && liveCount > 0 && <em className="badge">{liveCount}</em>}
           </button>
@@ -95,7 +117,10 @@ export default function App() {
             {route === 'guide' && <GuidePage />}
             {route === 'sports' && <SportsPage />}
             {route === 'fantasy' && <FantasyPage />}
-            {route === 'picks' && <PicksPage />}
+            {route === 'bets' && <BetsPage />}
+            {route === 'movies' && <MoviesPage />}
+            {route === 'channels' && <ChannelsPage />}
+            {route === 'teams' && <TeamsPage />}
             {route === 'multiview' && <MultiviewPage />}
             {route === 'schedule' && <SchedulePage />}
             {route === 'settings' && <SettingsPage />}

@@ -127,7 +127,7 @@ export default function HomePage() {
 
           <div className="panel">
             <h3 className="sectionTitle"><Ticket /> PICK’EM</h3>
-            <p className="muted">{pending ? `${pending} pick${pending > 1 ? 's' : ''} riding.` : 'No open picks.'} <button className="link" onClick={() => navigate('picks')}>Make picks</button></p>
+            <p className="muted">{pending ? `${pending} pick${pending > 1 ? 's' : ''} riding.` : 'No open picks.'} <button className="link" onClick={() => navigate('bets')}>Open Bets</button></p>
           </div>
         </section>
       </div>

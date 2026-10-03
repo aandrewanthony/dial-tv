@@ -1,4 +1,5 @@
 import type { Channel } from '../types';
+import { classifyContent, type ContentInfo } from './content';
 import { cleanHeaderValue, safeImageUrl, safeStreamUrl, safeUrl } from './url';
 
 export interface M3UParseResult {
@@ -89,6 +90,11 @@ function markFor(name: string) {
   const words = bare.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
   if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
   return (words[0] ?? '??').slice(0, 2).toUpperCase();
+}
+
+/** Only non-live items carry content fields, keeping live channel objects small. */
+function vodFields(c: ContentInfo) {
+  return c.kind === 'live' ? {} : { kind: c.kind, title: c.title, ...(c.year ? { year: c.year } : {}), ...(c.series ? { series: c.series } : {}) };
 }
 
 export function parseM3U(text: string, sourceId = 'import', numberStart = 500): M3UParseResult {
@@ -191,6 +197,7 @@ export function parseM3U(text: string, sourceId = 'import', numberStart = 500): 
       userAgent: opts.userAgent || fromAttrs.userAgent || undefined,
       referrer: opts.referrer || fromAttrs.referrer || undefined,
       ...(Object.keys(headers).length ? { headers } : {}),
+      ...vodFields(classifyContent({ name, group: a['group-title'] || group, url, type: a['tvg-type'] || a['type'] })),
     });
     pending = null;
     opts = new HttpOpts();

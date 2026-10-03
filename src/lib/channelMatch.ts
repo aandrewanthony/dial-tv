@@ -143,7 +143,8 @@ const prepCache = new WeakMap<Channel[], Prepared[]>();
 function prepared(channels: Channel[]): Prepared[] {
   let p = prepCache.get(channels);
   if (!p) {
-    p = channels.map((ch) => {
+    // Movies and series episodes never stand in for a TV network.
+    p = channels.filter((ch) => !ch.kind || ch.kind === 'live').map((ch) => {
       const cn = normalizeName(stripPrefix(ch.name));
       return { ch, cn, ...channelCanon(cn), region: cn.split(' ').some((t) => REGION_WORDS.has(t)) };
     });

@@ -2,6 +2,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('dialDesktop', {
+  secrets: {
+    get: (name) => ipcRenderer.invoke('dial:secret-get', name),
+    set: (name, value) => ipcRenderer.invoke('dial:secret-set', name, value),
+  },
   platform: process.platform,
   setMiniPlayer: (on) => ipcRenderer.invoke('dial:mini-player', !!on),
   version: () => ipcRenderer.invoke('dial:version'),

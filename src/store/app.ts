@@ -28,7 +28,36 @@ export interface Settings {
   decoder: 'auto' | 'always' | 'off';
   /** Channels that needed the decoder; they start with it next time. */
   decoderChannels: string[];
+  /** Settings → Playback (buffering, computer performance, quality). */
+  playback: PlaybackSettings;
 }
+
+/** Playback tuning. "auto" values are resolved by the player from the machine (see player/tuning.ts). */
+export interface PlaybackSettings {
+  /** How much video to buffer ahead: smaller = closer to live, bigger = fewer stalls. */
+  buffer: 'auto' | 'low-latency' | 'balanced' | 'smooth' | 'max';
+  /** This computer's power: sets decoder speed/quality and how many streams Multiview runs. */
+  computer: 'auto' | 'low' | 'medium' | 'high';
+  /** Use the graphics card to convert video in the built-in decoder (NVIDIA / Intel / AMD / Apple). */
+  hwAccel: 'auto' | 'on' | 'off';
+  /** Cap the resolution the player picks or the decoder outputs. */
+  maxResolution: 'auto' | '2160' | '1080' | '720' | '480';
+  /** Start adaptive streams at: auto (bandwidth estimate), highest, or lowest quality. */
+  startQuality: 'auto' | 'highest' | 'lowest';
+  deinterlace: 'auto' | 'on' | 'off';
+  /** Remember where you stopped in movies/episodes. */
+  resumeVod: boolean;
+}
+
+export const DEFAULT_PLAYBACK: PlaybackSettings = {
+  buffer: 'auto',
+  computer: 'auto',
+  hwAccel: 'auto',
+  maxResolution: 'auto',
+  startQuality: 'auto',
+  deinterlace: 'auto',
+  resumeVod: true,
+};
 
 export interface FantasyConfig {
   provider: 'sleeper';
@@ -127,6 +156,7 @@ export const DEFAULT_SETTINGS: Settings = {
   locked: [],
   decoder: 'auto',
   decoderChannels: [],
+  playback: DEFAULT_PLAYBACK,
 };
 
 export function defaultPersisted(): PersistedState {
@@ -157,7 +187,7 @@ export function migrate(raw: unknown): PersistedState {
   if (!raw || typeof raw !== 'object') return base;
   const s = raw as Partial<PersistedState> & { version?: number };
   const v = s.version ?? 0;
-  let out: PersistedState = { ...base, ...s, settings: { ...DEFAULT_SETTINGS, ...(s.settings ?? {}) }, version: SCHEMA_VERSION };
+  let out: PersistedState = { ...base, ...s, settings: { ...DEFAULT_SETTINGS, ...(s.settings ?? {}), playback: { ...DEFAULT_PLAYBACK, ...(s.settings?.playback ?? {}) } }, version: SCHEMA_VERSION };
   if (v < 2) {
     // v1 → v2: leagues list + pick players were introduced.
     out = { ...out, leagues: s.leagues?.length ? s.leagues : base.leagues, pickPlayers: s.pickPlayers?.length ? s.pickPlayers : base.pickPlayers };
@@ -500,12 +530,26 @@ export function pickPersisted(s: AppState): PersistedState {
 
 // ---------- selectors / helpers ----------
 
+export const isLive = (c: Channel) => !c.kind || c.kind === 'live';
+
+/** Live TV channels in the user's order (movies and series episodes are excluded: see vodItems). */
 export function orderedChannels(s: Pick<AppState, 'channels' | 'channelOrder' | 'hidden'>, includeHidden = false) {
   const idx = new Map(s.channelOrder.map((id, i) => [id, i]));
   const hidden = includeHidden ? null : new Set(s.hidden);
   return s.channels
-    .filter((c) => !hidden || !hidden.has(c.id))
+    .filter((c) => isLive(c) && (!hidden || !hidden.has(c.id)))
     .sort((a, b) => (idx.get(a.id) ?? 1e6 + a.number) - (idx.get(b.id) ?? 1e6 + b.number));
+}
+
+const vodCache = new WeakMap<Channel[], { movies: Channel[]; episodes: Channel[] }>();
+/** Movies and series episodes from all playlists (cached per channels array). */
+export function vodItems(channels: Channel[]) {
+  let v = vodCache.get(channels);
+  if (!v) {
+    v = { movies: channels.filter((c) => c.kind === 'movie'), episodes: channels.filter((c) => c.kind === 'series') };
+    vodCache.set(channels, v);
+  }
+  return v;
 }
 
 const programIndex = new WeakMap<Program[], Map<string, Program[]>>();

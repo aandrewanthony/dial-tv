@@ -543,3 +543,11 @@ h2 { margin: 0 0 6px; font-size: 18px; }
 .screen > .lockedScreen { position: relative; height: 100%; min-height: 200px; }
 .tick:focus-visible, .block:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .storageBanner { margin: 0 0 14px; }
+
+/* TV / Sports section switch */
+.sectionSwitch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: #11151d; border: 1px solid var(--line); border-radius: 10px; padding: 4px; margin: 0 2px 14px; }
+.sectionSwitch button { display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: none; color: var(--muted); border-radius: 7px; padding: 8px 6px; font: 800 11px Inter, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.sectionSwitch button.on { background: var(--accent); color: #fff; }
+.sectionSwitch svg { width: 15px; height: 15px; }
+.nav > button.navGap { margin-top: 14px; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; padding-top: 14px; }
+@media (max-width: 850px) { .sectionSwitch { margin: 0 4px 0 0; grid-template-columns: 1fr; min-width: 70px; } .sectionSwitch button { padding: 4px; font-size: 8px; } .nav > button.navGap { margin-top: 0; border-top: 0; padding-top: 6px; } }
