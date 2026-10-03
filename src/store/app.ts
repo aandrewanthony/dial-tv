@@ -272,6 +272,15 @@ export const useApp = create<AppState>((set, get) => ({
   },
 }));
 
+let resetting = false;
+
+/** Wipe all saved data (settings, schedule, picks, caches) and restart fresh. */
+export async function resetAllData() {
+  resetting = true;
+  await kv.clear();
+  location.reload();
+}
+
 /** Load persisted state, start auto-saving, then load sources. */
 export async function hydrate() {
   const stored = await kv.get<PersistedState>('state');
@@ -290,6 +299,7 @@ export async function hydrate() {
   let pending = false;
   const flush = () => {
     pending = false;
+    if (resetting) return;
     void kv.set('state', pickPersisted(useApp.getState()));
   };
   useApp.subscribe((s, prev) => {

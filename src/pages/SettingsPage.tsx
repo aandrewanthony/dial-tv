@@ -4,7 +4,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } 
 import {
   AlertTriangle, Download, Eye, EyeOff, GripVertical, Heart, Link2, Loader2, Lock, RefreshCw, Trash2, Unlock, Upload,
 } from 'lucide-react';
-import { migrate, orderedChannels, pickPersisted, sha256, useApp } from '../store/app';
+import { migrate, orderedChannels, pickPersisted, resetAllData, sha256, useApp } from '../store/app';
 import { kv } from '../store/db';
 import type { Channel } from '../types';
 import { ChannelMark, Toggle } from '../components/ui';
@@ -368,6 +368,10 @@ function Backup() {
         <label className="btnLike"><Upload /> Import settings<input type="file" accept=".json" hidden onChange={(e) => e.target.files?.[0] && void importBundle(e.target.files[0])} /></label>
       </div>
       {msg && <p>{msg}</p>}
+      <div className="setting">
+        <div><b>Reset all data</b><span>Erase favorites, teams, schedule, picks, playlists and settings on this device and start fresh.</span></div>
+        <button className="ghost danger" onClick={() => { if (confirm('Erase all Dial TV data on this device?')) void resetAllData(); }}>Reset</button>
+      </div>
       <p className="muted small">Schema v{s.version}</p>
     </section>
   );

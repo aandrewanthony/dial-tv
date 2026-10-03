@@ -63,6 +63,18 @@ export const kv = {
       }
     }
   },
+  async clear(): Promise<void> {
+    try {
+      await tx('readwrite', (s) => s.clear());
+    } catch {
+      /* ignore */
+    }
+    try {
+      for (const k of Object.keys(localStorage)) if (k.startsWith(LS_PREFIX) || k === 'dial-schedule') localStorage.removeItem(k);
+    } catch {
+      /* ignore */
+    }
+  },
   async del(key: string): Promise<void> {
     try {
       await tx('readwrite', (s) => s.delete(key));
