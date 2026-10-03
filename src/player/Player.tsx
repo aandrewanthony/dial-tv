@@ -193,8 +193,26 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
       });
     })().catch((e) => fail(String(e?.message ?? e)));
 
+    // Watchdog: some failures (blocked segments, dead TS feeds) never raise an error event.
+    // If playback hasn't advanced, stop spinning and offer Retry instead of buffering forever.
+    let lastT = -1;
+    let stalledFor = 0;
+    const watchdog = setInterval(() => {
+      if (cancelled || v.paused) return;
+      const advancing = v.currentTime !== lastT && v.readyState >= 3;
+      lastT = v.currentTime;
+      stalledFor = advancing ? 0 : stalledFor + 5;
+      if (stalledFor >= 25) {
+        clearInterval(watchdog);
+        fail(isDesktop()
+          ? 'Stream is not sending video (offline, overloaded, or not available in your region)'
+          : 'Stream is not sending video. In a browser this is usually the host blocking web playback (CORS); the desktop app avoids that.');
+      }
+    }, 5000);
+
     return () => {
       cancelled = true;
+      clearInterval(watchdog);
       destroy?.();
       v.removeAttribute('src');
       v.load();
