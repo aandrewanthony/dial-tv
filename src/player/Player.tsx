@@ -5,7 +5,7 @@ import {
   PictureInPicture2, RotateCw, Volume2, VolumeX,
 } from 'lucide-react';
 import type { Channel } from '../types';
-import { isTauri } from '../lib/net';
+import { isDesktop } from '../lib/net';
 import { redactUrl } from '../lib/url';
 
 export interface PlayerHandle {
@@ -120,12 +120,14 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
           v.src = url;
         } else {
           if (!HlsCtor || !HlsCtor.isSupported()) return fail('HLS is not supported in this browser');
-          const { TauriLoader } = isTauri() ? await import('./tauriLoader') : { TauriLoader: undefined };
+          // Desktop app: pass the playlist's per-channel User-Agent / Referer (the shell swaps these in).
+          const ua = isDesktop() ? channel.userAgent : undefined;
+          const ref = isDesktop() ? channel.referrer : undefined;
           const hls = new HlsCtor({
             enableWorker: true,
             lowLatencyMode: true,
             backBufferLength: 30,
-            ...(TauriLoader ? { loader: TauriLoader as unknown as typeof HlsCtor.DefaultConfig.loader } : {}),
+            ...(ua || ref ? { xhrSetup: (xhr: XMLHttpRequest) => { if (ua) xhr.setRequestHeader('X-Dial-UA', ua); if (ref) xhr.setRequestHeader('X-Dial-Referer', ref); } } : {}),
           });
           hlsRef.current = hls;
           engineRef.current = `hls.js ${HlsCtor.version}`;

@@ -521,3 +521,9 @@ h2 { margin: 0 0 6px; font-size: 18px; }
 .pickerList button { border: 0; background: none; text-align: left; padding: 7px 9px; border-radius: 6px; font-size: 13px; }
 .pickerList button:hover, .pickerList button.on { background: #1f2531; }
 .pickerList small { padding: 6px 9px; }
+
+/* Desktop mini player exit */
+.miniExit { position: fixed; top: 8px; right: 8px; z-index: 40; display: flex; gap: 6px; align-items: center; border: 1px solid var(--line2); background: #0b0e14d9; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 700; opacity: .25; transition: opacity .2s; }
+.miniExit:hover { opacity: 1; }
+.app.theater { padding-bottom: 0; }
+.app.theater .bottomLine { display: none; }

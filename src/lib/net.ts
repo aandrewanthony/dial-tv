@@ -1,19 +1,19 @@
 /**
  * Network helpers. In the browser, playlist/EPG hosts must send CORS headers.
- * In the Tauri desktop app we route through the native HTTP plugin instead,
- * which is not subject to CORS — most IPTV providers don't send CORS headers.
+ * The desktop app (Electron) adds CORS headers to every response in its own
+ * session, so plain fetch() and hls.js work against any IPTV provider there.
  */
 
-export const isTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-
-type FetchFn = typeof fetch;
-let nativeFetch: Promise<FetchFn> | null = null;
-
-export function getFetch(): Promise<FetchFn> {
-  if (!isTauri()) return Promise.resolve(window.fetch.bind(window));
-  nativeFetch ??= import('@tauri-apps/plugin-http').then((m) => m.fetch as FetchFn).catch(() => window.fetch.bind(window));
-  return nativeFetch;
+export interface DesktopBridge {
+  platform: string;
+  setMiniPlayer(on: boolean): Promise<boolean>;
+  version(): Promise<string>;
 }
+
+export const desktop = (): DesktopBridge | undefined =>
+  typeof window !== 'undefined' ? (window as unknown as { dialDesktop?: DesktopBridge }).dialDesktop : undefined;
+
+export const isDesktop = () => !!desktop();
 
 async function maybeGunzip(res: Response, url: string): Promise<string> {
   const buf = new Uint8Array(await res.arrayBuffer());
@@ -25,13 +25,12 @@ async function maybeGunzip(res: Response, url: string): Promise<string> {
 }
 
 export async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
-  const f = await getFetch();
   let res: Response;
   try {
-    res = await f(url, { signal });
+    res = await fetch(url, { signal });
   } catch (e) {
-    if (!isTauri()) {
-      throw new Error('Request blocked. The server may not allow browser access (CORS) — use the desktop app, or a host that sends CORS headers.');
+    if (!isDesktop()) {
+      throw new Error('Request blocked. The server may not allow browser access (CORS) — use the Dial TV desktop app, which works with any provider.');
     }
     throw e;
   }

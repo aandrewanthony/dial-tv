@@ -1,6 +1,6 @@
 # Dial TV — Personal TV & Sports Command Center
 
-A fast, keyboard-friendly IPTV player built around live sports. Runs in the browser and as a desktop app (Windows / macOS via Tauri). Bring your own playlist: Dial TV plays streams you're authorized to watch and adds a sports layer on top.
+A fast, keyboard-friendly IPTV player built around live sports. Runs in the browser and as a desktop app for Windows and macOS (Electron). Bring your own playlist: Dial TV plays streams you're authorized to watch and adds a sports layer on top.
 
 ## Highlights
 
@@ -39,4 +39,4 @@ npm run dev        # http://localhost:1420
 
 See [BUILD.md](BUILD.md) for tests, web deploy and desktop releases.
 
-> **Browser vs desktop:** browsers require playlist/stream hosts to send CORS headers; most IPTV providers don't. The desktop app routes playlist, guide and HLS requests through native HTTP, so it works with any provider.
+> **Browser vs desktop:** browsers require playlist/stream hosts to send CORS headers, and most IPTV providers don't send them. The desktop app works with any provider, and also applies per-channel User-Agent/Referer from the playlist.

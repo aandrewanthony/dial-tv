@@ -14,7 +14,7 @@ import { redactUrl, safeUrl } from '../lib/url';
 import { LEAGUES } from '../lib/sports';
 import { requestNotifyPermission } from '../lib/notify';
 import { useRoute, navigate } from '../app/router';
-import { isTauri } from '../lib/net';
+import { isDesktop } from '../lib/net';
 
 type Tab = 'sources' | 'channels' | 'mapping' | 'sports' | 'parental' | 'appearance' | 'backup';
 const TABS: [Tab, string][] = [
@@ -81,7 +81,7 @@ function Sources() {
           <h2>Playlists</h2>
           <button onClick={() => void s.loadSources()} disabled={s.loadingSources}>{s.loadingSources ? <Loader2 className="spin" /> : <RefreshCw />} Reload all</button>
         </div>
-        <p className="muted">M3U/M3U8 playlists from providers you subscribe to. Everything stays on this device.{!isTauri() && ' In the browser, the playlist host must allow cross-origin requests — the desktop app has no such limit.'}</p>
+        <p className="muted">M3U/M3U8 playlists from providers you subscribe to. Everything stays on this device.{!isDesktop() && ' In the browser, the playlist host must allow cross-origin requests — the desktop app has no such limit.'}</p>
         {s.playlists.map((p) => (
           <div className="srcRow" key={p.id}>
             <Toggle on={p.enabled} onChange={(v) => { s.update((st) => ({ playlists: st.playlists.map((x) => (x.id === p.id ? { ...x, enabled: v } : x)) })); setTimeout(() => void useApp.getState().loadSources(), 0); }} />

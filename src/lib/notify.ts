@@ -1,15 +1,6 @@
-import { isTauri } from './net';
-
-/** Desktop notification via Tauri plugin, else the web Notification API. Silently no-ops if not permitted. */
+/** System notification via the web Notification API (native toasts in the desktop app). Best-effort. */
 export async function notify(title: string, body?: string) {
   try {
-    if (isTauri()) {
-      const n = await import('@tauri-apps/plugin-notification');
-      let ok = await n.isPermissionGranted();
-      if (!ok) ok = (await n.requestPermission()) === 'granted';
-      if (ok) n.sendNotification({ title, body });
-      return;
-    }
     if (typeof Notification === 'undefined') return;
     if (Notification.permission === 'granted') new Notification(title, { body });
   } catch {
@@ -19,10 +10,6 @@ export async function notify(title: string, body?: string) {
 
 export async function requestNotifyPermission(): Promise<boolean> {
   try {
-    if (isTauri()) {
-      const n = await import('@tauri-apps/plugin-notification');
-      return (await n.isPermissionGranted()) || (await n.requestPermission()) === 'granted';
-    }
     if (typeof Notification === 'undefined') return false;
     return (await Notification.requestPermission()) === 'granted';
   } catch {

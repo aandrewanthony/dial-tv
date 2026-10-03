@@ -1,44 +1,53 @@
 # Build, test & release
 
-## Requirements
-Node 20+ (22 recommended). Desktop builds also need Rust stable + the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for the OS.
+Desktop apps use **Electron 33.2.0** + electron-builder. (Tauri was dropped: its build tool is blocked by
+Windows Smart App Control on our dev PC, and Mac apps can only be built on a Mac anyway.)
 
 ## Develop
 ```bash
 npm install
-npm run dev          # web app on http://localhost:1420
-npm run tauri dev    # desktop shell (needs Rust)
+npm run dev            # web app on http://localhost:1420
+npm run desktop:dev    # desktop window with hot reload
+npm run desktop        # desktop window from a production build
 ```
 
 ## Test
 ```bash
 npm run typecheck
-npm test             # Vitest: parsers, scheduler, mapper, odds grading, adapters, migrations
+npm test               # Vitest unit tests
 npx playwright install chromium   # once
-npm run test:e2e     # Playwright: navigation, sports, picks, schedule, player, search, mobile
+npm run test:e2e       # Playwright flows (ESPN/Sleeper mocked)
 ```
-E2E mocks ESPN/Sleeper from `tests/fixtures`, so it's deterministic and offline-safe.
+
+## Windows app (build on this PC)
+```bash
+npm run dist:win
+```
+Output in `release/`:
+- `Dial-TV-Setup-<ver>.exe`: installer (Start menu + desktop shortcut, uninstaller).
+- `Dial-TV-Portable-<ver>.exe`: single file, no install.
+- `Dial TV-<ver>-win.zip`: unzip-and-run folder.
+
+`signAndEditExecutable` is off, so no code-signing tools run during the build. The build and both exes have been
+verified to run on this PC with Smart App Control enforced. Without a code-signing certificate, Windows SmartScreen
+may show "Windows protected your PC". Click **More info → Run anyway** once.
+
+## Mac app (built by GitHub Actions on a real Mac)
+Workflow: `.github/workflows/desktop.yml`. GitHub → **Actions → Desktop apps → Run workflow**, or push a tag:
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+Downloads: the run's **Artifacts** (`Dial-TV-mac` has the `.dmg` + `.zip`). A tag also attaches them to a draft release.
+The app is universal (Apple Silicon + Intel) and ad-hoc signed. The workflow checks the signature and launches the app before uploading.
+
+### First launch on the Mac (one time)
+Without a paid Apple Developer ID ($99/yr), macOS can't verify the developer:
+- **macOS 15 Sequoia or newer:** open Dial TV once, click **Done**, then go to **System Settings → Privacy & Security** and click **Open Anyway** next to Dial TV.
+- **macOS 14 or older:** right-click Dial TV in Applications → **Open** → **Open**.
+
+To remove this prompt for good, add a Developer ID: repo secrets `CSC_LINK` (base64 .p12), `CSC_KEY_PASSWORD`,
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, then in `package.json → build.mac` set
+`"identity"` to your certificate name, `"hardenedRuntime": true` and `"notarize": true`.
 
 ## Web deploy
-```bash
-npm run build        # → dist/
-```
-Deploy `dist/` to any static host (Netlify, Vercel, Cloudflare Pages, S3). It's a hash-routed SPA, so no rewrite rules are needed.
-
-## Desktop releases (Windows + macOS)
-Releases are built by GitHub Actions (`.github/workflows/release.yml`) — push a tag:
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
-That builds a Windows MSI/NSIS installer and a universal macOS app/DMG into a **draft** GitHub release.
-
-Icons are generated in CI from `src-tauri/app-icon.svg` (`npm run tauri:icons`).
-
-### Signing
-- **macOS:** add repo secrets `APPLE_CERTIFICATE` (base64 .p12), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` (app-specific), `APPLE_TEAM_ID`. tauri-action signs, notarizes and staples automatically.
-- **Windows:** unsigned installers trigger SmartScreen, and PCs with **Smart App Control** may refuse to run them at all. Add a code-signing certificate (`bundle.windows.certificateThumbprint` or `signCommand` in `src-tauri/tauri.conf.json`), or use Azure Trusted Signing.
-- Add the Tauri updater only after signing is in place.
-
-### Building locally on Windows
-`npm run tauri build` works on a normal Windows dev machine with Rust + WebView2. On machines with Windows Application Control / Smart App Control enforced, the Tauri CLI's native binary is blocked — use the CI workflow instead.
+`npm run build` → deploy `dist/` to any static host. In a browser, IPTV hosts must allow CORS; the desktop apps don't need that.

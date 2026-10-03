@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Heart, History, Lock, Pin, PinOff, Play } from 'lucide-react';
-import { isTauri } from '../lib/net';
+import { desktop } from '../lib/net';
 import Player, { type PlayerHandle } from '../player/Player';
 import { nowPlaying, orderedChannels, useApp } from '../store/app';
 import { ChannelMark, Empty, fmtTime } from '../components/ui';
@@ -15,12 +15,8 @@ export default function WatchPage() {
   const [pinned, setPinned] = useState(false);
   /** Desktop mini player: shrink to a small always-on-top window in theater mode. */
   const togglePin = async () => {
-    const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window');
-    const w = getCurrentWindow();
     const next = !pinned;
-    await w.setAlwaysOnTop(next);
-    if (next) await w.setSize(new LogicalSize(560, 360));
-    else await w.setSize(new LogicalSize(1440, 900));
+    await desktop()?.setMiniPlayer(next);
     useApp.setState({ theater: next });
     setPinned(next);
   };
@@ -72,6 +68,7 @@ export default function WatchPage() {
 
   return (
     <div className="watch">
+      {pinned && <button className="miniExit" onClick={() => void togglePin()} title="Exit mini player"><PinOff /> Exit mini player</button>}
       <section className="hero">
         <div className="screen">
           <Player
@@ -106,7 +103,7 @@ export default function WatchPage() {
               <Heart fill={fav ? 'currentColor' : 'none'} /> {fav ? 'Favorited' : 'Favorite'}
             </button>
             {prev && <button onClick={() => s.tune(prev.id)} title="Last channel (L)"><History /> {prev.name}</button>}
-            {isTauri() && <button onClick={() => void togglePin()} title="Mini player: small, always on top">{pinned ? <PinOff /> : <Pin />} {pinned ? 'Unpin' : 'Mini player'}</button>}
+            {desktop() && <button onClick={() => void togglePin()} title="Mini player: small, always on top">{pinned ? <PinOff /> : <Pin />} {pinned ? 'Unpin' : 'Mini player'}</button>}
           </div>
         </div>
       </section>
