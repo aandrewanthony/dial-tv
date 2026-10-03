@@ -1,7 +1,7 @@
 {
   "name": "dial-tv",
   "private": true,
-  "version": "0.3.2",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,8 +14,8 @@
     "desktop": "npm run build && electron .",
     "desktop:dev": "node scripts/desktop-dev.mjs",
     "icons": "node scripts/make-icons.mjs",
-    "dist:win": "npm run build && electron-builder --win --publish never",
-    "dist:mac": "npm run build && electron-builder --mac --publish never"
+    "dist:win": "npm run build && node scripts/fetch-ffmpeg.mjs win32-x64 && electron-builder --win --publish never",
+    "dist:mac": "npm run build && node scripts/fetch-ffmpeg.mjs darwin-x64 darwin-arm64 && electron-builder --mac --publish never"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
@@ -38,6 +38,7 @@
     "electron": "33.2.0",
     "electron-builder": "25.1.8",
     "fake-indexeddb": "^6.2.5",
+    "ffmpeg-static": "^5.2.0",
     "jsdom": "^30.1.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.1",
@@ -62,7 +63,8 @@
       "electron/**",
       "dist/**",
       "package.json",
-      "!**/*.map"
+      "!**/*.map",
+      "!node_modules/**/*"
     ],
     "asar": false,
     "win": {
@@ -87,7 +89,16 @@
         }
       ],
       "icon": "build/icon.png",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "extraResources": [
+        {
+          "from": "vendor/ffmpeg/win32-x64",
+          "to": "ffmpeg",
+          "filter": [
+            "ffmpeg.exe"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -109,13 +120,15 @@
         {
           "target": "dmg",
           "arch": [
-            "universal"
+            "arm64",
+            "x64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "universal"
+            "arm64",
+            "x64"
           ]
         }
       ],
@@ -124,11 +137,20 @@
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "artifactName": "Dial-TV-${version}-mac-${arch}.${ext}"
+      "artifactName": "Dial-TV-${version}-mac-${arch}.${ext}",
+      "extraResources": [
+        {
+          "from": "vendor/ffmpeg/darwin-${arch}",
+          "to": "ffmpeg",
+          "filter": [
+            "ffmpeg"
+          ]
+        }
+      ]
     },
     "dmg": {
       "title": "Dial TV",
-      "artifactName": "Dial-TV-${version}-mac.${ext}"
+      "artifactName": "Dial-TV-${version}-mac-${arch}.${ext}"
     },
     "afterSign": "build/adhoc-sign.cjs"
   }

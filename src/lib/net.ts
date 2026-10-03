@@ -8,6 +8,19 @@ export interface DesktopBridge {
   platform: string;
   setMiniPlayer(on: boolean): Promise<boolean>;
   version(): Promise<string>;
+  decoder?: {
+    info(): Promise<{ available: boolean }>;
+    probe(url: string, ua?: string, ref?: string): Promise<StreamInfo | null>;
+    url(src: string, ua?: string, ref?: string): Promise<string | null>;
+  };
+}
+
+/** Codecs of a stream as reported by the desktop decoder's ffmpeg probe. */
+export interface StreamInfo {
+  video: string | null;
+  audio: string | null;
+  interlaced: boolean;
+  resolution: string | null;
 }
 
 export const desktop = (): DesktopBridge | undefined =>

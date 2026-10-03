@@ -24,6 +24,10 @@ export interface Settings {
   /** SHA-256 hex of the parental PIN. */
   lockPin?: string;
   locked: string[];
+  /** Desktop built-in decoder: auto (when needed), always, or off. */
+  decoder: 'auto' | 'always' | 'off';
+  /** Channels that needed the decoder; they start with it next time. */
+  decoderChannels: string[];
 }
 
 export interface FantasyConfig {
@@ -105,6 +109,8 @@ export const DEFAULT_SETTINGS: Settings = {
   accent: '#ff4d4d',
   guideZoom: 60,
   locked: [],
+  decoder: 'auto',
+  decoderChannels: [],
 };
 
 export function defaultPersisted(): PersistedState {

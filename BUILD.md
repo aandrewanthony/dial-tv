@@ -38,7 +38,7 @@ Workflow: `.github/workflows/desktop.yml`. GitHub → **Actions → Desktop apps
 git tag v0.2.0 && git push origin v0.2.0
 ```
 Downloads: the run's **Artifacts** (`Dial-TV-mac` has the `.dmg` + `.zip`). A tag also attaches them to a draft release.
-The app is universal (Apple Silicon + Intel) and ad-hoc signed. The workflow checks the signature and launches the app before uploading.
+There are separate Apple Silicon (`arm64`) and Intel (`x64`) apps, each with a matching ffmpeg, all ad-hoc signed. The workflow checks the signature and launches the app before uploading.
 
 ### First launch on the Mac (one time)
 Without a paid Apple Developer ID ($99/yr), macOS can't verify the developer:
@@ -48,6 +48,19 @@ Without a paid Apple Developer ID ($99/yr), macOS can't verify the developer:
 To remove this prompt for good, add a Developer ID: repo secrets `CSC_LINK` (base64 .p12), `CSC_KEY_PASSWORD`,
 `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, then in `package.json → build.mac` set
 `"identity"` to your certificate name, `"hardenedRuntime": true` and `"notarize": true`.
+
+## Stream lab (playback format tests)
+Tests real playback of every broadcast format against a desktop build: MPEG-2 1080i + AC-3, MPEG-2 + MP2,
+H.264 + AC-3 / E-AC-3, HEVC, H.264 + AAC, MPEG-2 over HLS. Each one is tested with and without a file extension.
+A channel passes only if picture AND sound are decoding and playback is advancing.
+```bash
+node tests/streamlab/generate.mjs          # makes test media with the bundled ffmpeg
+node tests/streamlab/server.mjs &          # serves it like an IPTV provider on :8787
+DIAL_PROFILE=lab "release/win-unpacked/Dial TV.exe" --remote-debugging-port=9341 &
+node tests/streamlab/check.mjs 9341        # 13 channels: picture + sound
+node tests/streamlab/soak.mjs 9341 90      # real-time pace, ffmpeg cleanup, 4x multiview (Windows)
+```
+CI runs the same check on the packaged Mac apps on Apple Silicon and Intel runners before releasing.
 
 ## Web deploy
 `npm run build` → deploy `dist/` to any static host. In a browser, IPTV hosts must allow CORS; the desktop apps don't need that.

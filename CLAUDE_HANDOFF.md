@@ -44,6 +44,9 @@ Favorites, reorder/hide (dnd), global search, sports hub with live/upcoming/fina
 - **Code signing:** Windows cert, and Apple Developer ID + notarization (steps in BUILD.md). Then add electron-updater.
 - Secrets: playlist URLs can embed provider credentials and are stored in IndexedDB. Move to the OS keychain via Electron `safeStorage` on desktop.
 
+## Built-in decoder (v0.4)
+`electron/decoder.cjs` probes each stream with the bundled ffmpeg (`resources/ffmpeg`) and, when Chromium can't decode its codecs, serves an H.264/AAC MPEG-TS conversion from a token-protected 127.0.0.1 server. The player (`src/player/Player.tsx`) probes in parallel with direct playback. It switches when the codecs are unsupported, when playback errors, or when picture or sound bytes aren't decoding (silent AC-3 / MPEG-2 failures). Channels that needed the decoder are remembered (`settings.decoderChannels`). Verified with `tests/streamlab` (13/13 formats on Windows packaged build; CI runs it on packaged Mac arm64 + x64).
+
 ## Constraints learned
 - ESPN `/teams` lacks CORS → team lists come from `/standings`. Scoreboard date *ranges* return nothing → one request per day.
 - Chromium now plays HLS natively; we still prefer hls.js (track menus + stats), native only when MSE is missing (iOS).

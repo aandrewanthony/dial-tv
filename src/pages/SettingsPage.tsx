@@ -17,9 +17,9 @@ import { requestNotifyPermission } from '../lib/notify';
 import { useRoute, navigate } from '../app/router';
 import { isDesktop } from '../lib/net';
 
-type Tab = 'sources' | 'channels' | 'mapping' | 'sports' | 'parental' | 'appearance' | 'backup';
+type Tab = 'sources' | 'channels' | 'mapping' | 'playback' | 'sports' | 'parental' | 'appearance' | 'backup';
 const TABS: [Tab, string][] = [
-  ['sources', 'Sources'], ['channels', 'Channels'], ['mapping', 'Mapping'], ['sports', 'Sports & alerts'],
+  ['sources', 'Sources'], ['channels', 'Channels'], ['mapping', 'Mapping'], ['playback', 'Playback'], ['sports', 'Sports & alerts'],
   ['parental', 'Parental'], ['appearance', 'Appearance'], ['backup', 'Backup'],
 ];
 
@@ -34,6 +34,7 @@ export default function SettingsPage() {
       {tab === 'sources' && <Sources />}
       {tab === 'channels' && <Channels />}
       {tab === 'mapping' && <Mapping />}
+      {tab === 'playback' && <Playback />}
       {tab === 'sports' && <SportsSettings />}
       {tab === 'parental' && <Parental />}
       {tab === 'appearance' && <Appearance />}
@@ -231,6 +232,34 @@ function Mapping() {
         {s.xmltvChannels.length > 0 && <button onClick={() => void s.loadSources()}><RefreshCw /> Apply &amp; reload guide</button>}
       </section>
     </div>
+  );
+}
+
+function Playback() {
+  const s = useApp();
+  const set = (p: Partial<typeof s.settings>) => s.update((st) => ({ settings: { ...st.settings, ...p } }));
+  const n = s.settings.decoderChannels.length;
+  return (
+    <section className="panel">
+      <h2>Playback</h2>
+      <div className="setting">
+        <div>
+          <b>Built-in decoder</b>
+          <span>{isDesktop()
+            ? 'Converts channels the player can\x27t play directly (MPEG-2 video, AC-3 / Dolby, E-AC-3, MP2 audio, and HEVC on PCs without HEVC support). Auto checks each channel and switches only when needed.'
+            : 'Available in the Windows and Mac apps. The web version can\x27t convert video formats.'}</span>
+        </div>
+        <div className="chips">
+          {([['auto', 'Auto'], ['always', 'Always'], ['off', 'Off']] as const).map(([v, l]) => (
+            <button key={v} disabled={!isDesktop()} className={s.settings.decoder === v ? 'on' : ''} onClick={() => set({ decoder: v })}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div className="setting">
+        <div><b>Channels using the decoder</b><span>{n ? `${n} channel${n > 1 ? 's' : ''} start with the decoder because they needed it before.` : 'None yet.'}</span></div>
+        <button className="ghost" disabled={!n} onClick={() => set({ decoderChannels: [] })}>Reset</button>
+      </div>
+    </section>
   );
 }
 

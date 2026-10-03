@@ -2,6 +2,7 @@
 // what a browser can't: access to IPTV hosts that don't send CORS headers.
 const { app, BrowserWindow, ipcMain, session, shell, Menu } = require('electron');
 const path = require('node:path');
+const decoder = require('./decoder.cjs');
 
 const isDev = !app.isPackaged && process.env.DIAL_DEV_URL;
 
@@ -103,6 +104,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
     allowCrossOrigin();
+    decoder.start(app, ipcMain);
     createWindow();
     app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow());
   });

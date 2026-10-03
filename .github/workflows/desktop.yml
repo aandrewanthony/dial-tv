@@ -1,6 +1,7 @@
 name: Desktop apps
-# Builds the Mac (universal: Apple Silicon + Intel) and Windows apps.
-# Run it from the Actions tab ("Run workflow"), or push a tag like v0.2.0 to also attach them to a draft release.
+# Builds the Mac (Apple Silicon + Intel) and Windows apps, then TESTS the packaged Mac apps on real
+# Macs of each kind with the stream lab: every broadcast format must play with picture AND sound.
+# Run from the Actions tab ("Run workflow"), or push a tag like v0.4.0 to attach them to a draft release.
 on:
   workflow_dispatch:
   push:
@@ -10,7 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  mac:
+  mac-build:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,36 +19,73 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm test
-      - name: Build Dial TV.app + DMG
+      - name: Build Dial TV.app (arm64 + x64) + DMGs
         run: npm run dist:mac
         env:
           # With an Apple Developer ID, add CSC_LINK / CSC_KEY_PASSWORD / APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
-          # APPLE_TEAM_ID secrets and set "identity" + "notarize" in package.json → no Gatekeeper prompt at all.
+          # APPLE_TEAM_ID secrets and set "identity" + "notarize" in package.json: no Gatekeeper prompt at all.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - name: Verify the app bundle is validly signed (ad-hoc) and launches
+      - name: Verify bundles (signature, architecture, bundled decoder)
         timeout-minutes: 5
         run: |
-          APP="$(find release -maxdepth 2 -name 'Dial TV.app' | head -1)"
-          echo "App: $APP"
-          codesign --verify --deep --strict --verbose=2 "$APP"
-          lipo -archs "$APP/Contents/MacOS/Dial TV"
-          "$APP/Contents/MacOS/Dial TV" &
-          PID=$!; sleep 15
-          kill -0 $PID && echo "launched OK"
-          kill $PID || true
+          set -e
+          for APP in "release/mac-arm64/Dial TV.app" "release/mac/Dial TV.app"; do
+            echo "== $APP"
+            codesign --verify --deep --strict --verbose=2 "$APP"
+            FF="$APP/Contents/Resources/ffmpeg/ffmpeg"
+            codesign --verify --verbose=2 "$FF"
+            lipo -archs "$APP/Contents/MacOS/Dial TV"
+            lipo -archs "$FF"
+          done
+          FF="release/mac-arm64/Dial TV.app/Contents/Resources/ffmpeg/ffmpeg"
+          "$FF" -hide_banner -version | head -1
+          for d in mpeg2video ac3 eac3 mp2 hevc h264; do "$FF" -hide_banner -decoders | grep -qE " $d " && echo "decoder $d OK" || { echo "decoder $d MISSING"; exit 1; }; done
+          "$FF" -hide_banner -encoders | grep -q libx264 && echo "encoder libx264 OK" || { echo "libx264 MISSING"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: Dial-TV-mac
           path: |
             release/*.dmg
             release/*.zip
-      - if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          files: |
-            release/*.dmg
-            release/*.zip
+
+  mac-test:
+    needs: mac-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest       # Apple Silicon
+            zip: arm64
+          - runner: macos-15-intel     # Intel
+            zip: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with: { name: Dial-TV-mac, path: dl }
+      - name: Unpack the packaged app (as a user would)
+        run: |
+          ditto -x -k dl/Dial-TV-*-mac-${{ matrix.zip }}.zip app
+          ls app
+          uname -m
+          FF="app/Dial TV.app/Contents/Resources/ffmpeg/ffmpeg"
+          "$FF" -hide_banner -version | head -1
+          for d in mpeg2video ac3 eac3 mp2; do "$FF" -hide_banner -decoders | grep -qE " $d " && echo "decoder $d OK" || { echo "decoder $d MISSING"; exit 1; }; done
+      - name: Generate broadcast-format test streams
+        run: |
+          node tests/streamlab/generate.mjs
+          for f in mpeg2_ac3 mpeg2_mp2 h264_ac3 h264_eac3 h264_aac; do test -f tests/streamlab/media/$f.ts || { echo "missing $f"; exit 1; }; done
+      - name: Play every format in the packaged app (picture AND sound)
+        timeout-minutes: 15
+        run: |
+          node tests/streamlab/server.mjs &
+          sleep 2
+          DIAL_PROFILE=ci "app/Dial TV.app/Contents/MacOS/Dial TV" --remote-debugging-port=9350 &
+          sleep 15
+          node tests/streamlab/check.mjs 9350
 
   windows:
     runs-on: windows-latest
@@ -63,10 +101,18 @@ jobs:
           path: |
             release/Dial-TV-Setup-*.exe
             release/Dial-TV-Portable-*.exe
-      - if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [mac-test, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: out, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
         with:
           draft: true
           files: |
-            release/Dial-TV-Setup-*.exe
-            release/Dial-TV-Portable-*.exe
+            out/*.dmg
+            out/*.zip
+            out/*.exe

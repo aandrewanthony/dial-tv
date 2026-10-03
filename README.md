@@ -17,7 +17,8 @@ A fast, keyboard-friendly IPTV player built around live sports. Runs in the brow
 | **Multiview** | 2×2 or 1+3, audio follows the focused tile, "fill with best live games". |
 | **Guide** | Virtualized EPG with a true time axis, 30/60/120-min zoom, now line, 8-day picker, sports filter, program drawer. |
 | **Planner** | Day timeline with drag/resize, conflict lanes + warnings, reminders, notes, agenda view, **rules** ("every Jets game", "every SportsCenter", "reserve 7–10 PM"). |
-| **Player** | hls.js + mpegts.js (raw `.ts` IPTV), auto-retry & playlist fallback URLs, quality / audio / subtitle menus, PiP, theater, fullscreen, stream-health panel, last-channel, channel-number entry, desktop mini-player (always on top). |
+| **Built-in decoder** | Desktop apps play broadcast formats browsers can't: MPEG-2 video, AC-3/Dolby, E-AC-3 and MP2 audio, and HEVC on PCs without HEVC support. Each channel is checked when you tune and converted on the fly with a bundled ffmpeg only when needed. Settings → Playback. |
+| **Player** | hls.js + mpegts.js (raw `.ts` IPTV, links with or without extensions), auto-retry & playlist fallback URLs, quality / audio / subtitle menus, PiP, theater, fullscreen, stream-health panel, last-channel, channel-number entry, desktop mini-player (always on top). |
 | **Everything else** | Global search (Ctrl K), favorites, channel reorder/hide, parental PIN locks, XMLTV import + manual mapping, settings backup/restore, compact mode, accent colors, phone layout, live score ticker. |
 
 Press **?** in the app for keyboard shortcuts.
