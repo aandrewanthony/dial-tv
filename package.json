@@ -121,7 +121,7 @@
       ],
       "category": "public.app-category.entertainment",
       "icon": "build/icon.png",
-      "identity": "-",
+      "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "artifactName": "Dial-TV-${version}-mac-${arch}.${ext}"
@@ -129,6 +129,7 @@
     "dmg": {
       "title": "Dial TV",
       "artifactName": "Dial-TV-${version}-mac.${ext}"
-    }
+    },
+    "afterSign": "build/adhoc-sign.cjs"
   }
 }
