@@ -15,7 +15,7 @@
     "desktop:dev": "node scripts/desktop-dev.mjs",
     "icons": "node scripts/make-icons.mjs",
     "dist:win": "npm run build && node scripts/fetch-ffmpeg.mjs win32-x64 && electron-builder --win --publish never",
-    "dist:mac": "npm run build && node scripts/fetch-ffmpeg.mjs darwin-x64 darwin-arm64 && electron-builder --mac --publish never"
+    "dist:mac": "npm run build && node scripts/fetch-ffmpeg.mjs darwin-x64 darwin-arm64 && electron-builder --mac --arm64 --publish never && electron-builder --mac --x64 --publish never"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

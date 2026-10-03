@@ -19,6 +19,8 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm test
+      - name: Stop Spotlight indexing (it holds mounted DMG volumes busy)
+        run: sudo mdutil -a -i off || true
       - name: Build Dial TV.app (arm64 + x64) + DMGs
         run: npm run dist:mac
         env:

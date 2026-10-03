@@ -33,7 +33,8 @@ Check (Test-Path "$env:DIAL_INSTALL_ROOT\resources\ffmpeg\ffmpeg.exe") "built-in
 $sh = New-Object -ComObject WScript.Shell
 foreach ($d in 'Start Menu', 'Desktop') {
   $lnk = "$env:DIAL_SHORTCUT_DIR\$d\Dial TV.lnk"
-  Check ((Test-Path $lnk) -and ($sh.CreateShortcut($lnk).TargetPath -eq $exe)) "$d shortcut points at installed app"
+  # Compare real paths (CI temp dirs use 8.3 short names like RUNNER~1).
+  Check ((Test-Path $lnk) -and ((Get-Item $sh.CreateShortcut($lnk).TargetPath).FullName -eq (Get-Item $exe).FullName)) "$d shortcut points at installed app"
   if (Test-Path $lnk) { Check ($sh.CreateShortcut($lnk).IconLocation -like '*icon.ico*') "$d shortcut uses the Dial TV icon" }
 }
 $r = Get-ItemProperty $key -ErrorAction SilentlyContinue
