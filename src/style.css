@@ -528,8 +528,11 @@ h2 { margin: 0 0 6px; font-size: 18px; }
 .app.theater { padding-bottom: 0; }
 .app.theater .bottomLine { display: none; }
 
-/* Playlist presets + paged channel grid */
-.presets { display: flex; flex-direction: column; gap: 6px; padding: 14px 0 4px; border-top: 1px solid var(--line); }
-.presets small { font-size: 12px; }
 .moreBtn { grid-column: 1 / -1; border: 1px dashed var(--line2); background: none; border-radius: 10px; padding: 12px; color: var(--muted); font-weight: 700; }
 .moreBtn:hover { color: var(--text); border-color: #4b5466; }
+
+/* First-run: add your playlist */
+.welcome { max-width: 760px; }
+.welcome h2 { font-size: 22px; }
+.addPlaylist { margin-top: 12px; }
+.addPlaylist .upload { margin-top: 10px; }

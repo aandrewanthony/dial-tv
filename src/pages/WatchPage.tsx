@@ -3,7 +3,8 @@ import { ChevronDown, ChevronUp, Heart, History, Lock, Pin, PinOff, Play } from 
 import { desktop } from '../lib/net';
 import Player, { type PlayerHandle } from '../player/Player';
 import { nowPlaying, orderedChannels, useApp } from '../store/app';
-import { ChannelMark, Empty, fmtTime } from '../components/ui';
+import { ChannelMark, fmtTime } from '../components/ui';
+import { AddPlaylist } from '../components/AddPlaylist';
 import { ScoreBug } from '../components/GameCard';
 import { matchBroadcasts } from '../lib/channelMatch';
 
@@ -54,7 +55,16 @@ export default function WatchPage() {
     return Object.values(s.games).find((g) => g.state === 'in' && matchBroadcasts(g.broadcasts, s.channels, s.networkOverrides)?.channel.id === current.id);
   }, [s.games, s.channels, s.networkOverrides, current]);
 
-  if (!current) return <Empty title="No channels">Add a playlist in Settings.</Empty>;
+  if (!current) {
+    return (
+      <div className="panel welcome">
+        <h2>Add your channels</h2>
+        <p className="muted">Paste your M3U playlist link or choose an .m3u file. Dial TV doesn't come with channels. It plays yours and adds the sports layer on top.</p>
+        {s.loadingSources ? <p className="muted">Loading playlist…</p> : <AddPlaylist />}
+        {s.playlists.some((p) => p.error) && <p className="err">{s.playlists.find((p) => p.error)?.error}</p>}
+      </div>
+    );
+  }
 
   const now = nowPlaying(s.programs, current.id);
   const next = s.programs.filter((p) => p.channelId === current.id && p.start >= (now?.end ?? Date.now())).sort((a, b) => a.start - b.start)[0];

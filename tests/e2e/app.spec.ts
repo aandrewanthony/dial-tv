@@ -7,6 +7,8 @@ import { resolve } from 'node:path';
  * aborted (we assert the player's UI states, not third-party stream availability).
  */
 const scoreboard = JSON.parse(readFileSync(resolve('tests/fixtures/espn-nfl.json'), 'utf8'));
+const playlist = readFileSync(resolve('tests/fixtures/sports.m3u'), 'utf8');
+const guide = readFileSync(resolve('tests/fixtures/guide.xml'), 'utf8');
 
 async function mockNetwork(page: Page) {
   await page.route('https://site.api.espn.com/**', (route) => {
@@ -22,6 +24,8 @@ async function mockNetwork(page: Page) {
     return route.fulfill({ json: data });
   });
   await page.route('https://api.sleeper.app/**', (route) => route.fulfill({ status: 404, json: null }));
+  await page.route('https://playlist.test/**', (route) => route.fulfill({ body: playlist, headers: { 'access-control-allow-origin': '*' } }));
+  await page.route('http://localhost:1420/__test/guide.xml', (route) => route.fulfill({ body: guide, contentType: 'application/xml' }));
   await page.route(/test-streams\.mux\.dev|unified-streaming|devstreaming-cdn|bitdash-a|espncdn|sleepercdn/, (route) => route.abort());
 }
 
@@ -76,14 +80,19 @@ test('schedule: create a custom block, it persists, conflicts are flagged', asyn
   await expect(page.locator('.agendaRow')).toHaveCount(2);
 });
 
-test('watch: channel number entry tunes, and an unreachable stream shows a retry state', async ({ page }) => {
+test('watch: starts empty, add your own playlist, number entry tunes, dead stream shows retry', async ({ page }) => {
   await page.goto('/#/watch');
+  await expect(page.getByRole('heading', { name: 'Add your channels' })).toBeVisible();
+  await page.getByPlaceholder('Playlist link').fill('https://playlist.test/my.m3u');
+  await page.getByRole('button', { name: 'Add link' }).click();
+  await expect(page.locator('.channels > button')).toHaveCount(5, { timeout: 10_000 });
+  await expect(page.locator('.channels')).not.toContainText('Big Buck Bunny');
   await page.locator('body').click({ position: { x: 5, y: 5 } });
-  await page.keyboard.press('1');
-  await page.keyboard.press('0');
-  await page.keyboard.press('3');
-  await expect(page.locator('.now h2')).toHaveText('Apple Demo', { timeout: 5000 });
-  await expect(page.locator('.playerState.error')).toContainText('Retry', { timeout: 15_000 });
+  for (const k of ['2', '0', '2']) await page.keyboard.press(k);
+  await expect(page.locator('.now h2')).toHaveText('FOX (WNYW) New York', { timeout: 5000 });
+  await expect(page.locator('.playerState.error')).toContainText('Retry', { timeout: 40_000 });
+  await page.reload();
+  await expect(page.locator('.channels > button')).toHaveCount(5, { timeout: 10_000 }); // playlist persisted
 });
 
 test('global search finds channels and teams', async ({ page }) => {

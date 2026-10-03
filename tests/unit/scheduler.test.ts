@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyRules, findConflicts, HOUR, layoutLanes, MIN, snap, startOfDay } from '../../src/lib/scheduler';
 import type { ScheduleEntry, SportEvent } from '../../src/types';
-import { generateFixtureGuide, DEMO_CHANNELS } from '../../src/providers/demo';
 
 const e = (id: string, startH: number, endH: number): ScheduleEntry => ({ id, title: id, start: startH * HOUR, end: endH * HOUR });
 
@@ -60,17 +59,5 @@ describe('rules', () => {
     expect(out).toHaveLength(1);
     expect(new Date(out[0].start).getDay()).toBe(0);
     expect(out[0].end - out[0].start).toBe(3 * HOUR);
-  });
-});
-
-describe('seeded demo guide', () => {
-  it('is deterministic for a given day regardless of time opened, and gapless', () => {
-    const day = startOfDay(Date.UTC(2026, 9, 3, 15));
-    const a = generateFixtureGuide(DEMO_CHANNELS, day + 3 * HOUR, 1);
-    const b = generateFixtureGuide(DEMO_CHANNELS, day + 20 * HOUR, 1);
-    expect(a).toEqual(b);
-    const ch = a.filter((p) => p.channelId === DEMO_CHANNELS[0].id);
-    for (let i = 1; i < ch.length; i++) expect(ch[i].start).toBe(ch[i - 1].end);
-    expect(ch[0].start).toBe(day);
   });
 });

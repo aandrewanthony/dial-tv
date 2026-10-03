@@ -125,7 +125,7 @@ export interface ScheduleRule {
 export interface PlaylistSource {
   id: string;
   name: string;
-  kind: 'm3u-url' | 'm3u-file' | 'demo';
+  kind: 'm3u-url' | 'm3u-file';
   url?: string;
   enabled: boolean;
   lastLoaded?: number;
@@ -136,7 +136,7 @@ export interface PlaylistSource {
 export interface EpgSource {
   id: string;
   name: string;
-  kind: 'xmltv-url' | 'xmltv-file' | 'demo';
+  kind: 'xmltv-url' | 'xmltv-file';
   url?: string;
   enabled: boolean;
   lastLoaded?: number;

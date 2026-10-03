@@ -16,6 +16,25 @@ describe('persistence', () => {
     expect(v1.settings.guideZoom).toBe(60);
   });
 
+  it('v3 drops built-in demo and iptv-org sources but keeps your own', () => {
+    const m = migrate({
+      version: 2,
+      playlists: [
+        { id: 'demo', name: 'Demo', kind: 'demo', enabled: true },
+        { id: 'p1', name: 'Free', kind: 'm3u-url', url: 'https://iptv-org.github.io/iptv/categories/sports.m3u', enabled: true },
+        { id: 'p2', name: 'Mine', kind: 'm3u-url', url: 'https://example.com/my.m3u', enabled: true },
+      ],
+      epgSources: [{ id: 'demo', name: 'Demo guide', kind: 'demo', enabled: true }],
+      favorites: ['demo:bbb', 'p2:espn'],
+      lastChannelId: 'demo:bbb',
+    });
+    expect(m.playlists.map((p) => p.id)).toEqual(['p2']);
+    expect(m.epgSources).toEqual([]);
+    expect(m.favorites).toEqual(['p2:espn']);
+    expect(m.lastChannelId).toBeUndefined();
+    expect(defaultPersisted().playlists).toEqual([]);
+  });
+
   it('round-trips through IndexedDB', async () => {
     await kv.set('k', { a: 1 });
     expect(await kv.get('k')).toEqual({ a: 1 });

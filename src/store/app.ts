@@ -3,13 +3,12 @@ import type {
   BetPick, Channel, EpgSource, League, PlaylistSource, Program, ScheduleEntry, ScheduleRule, SportEvent,
 } from '../types';
 import { kv } from './db';
-import { DEMO_CHANNELS, demoEpg } from '../providers/demo';
 import { m3uUrlProvider, mapXmltvPrograms } from '../providers/remote';
 import { parseM3U } from '../lib/m3u';
 import { fetchText } from '../lib/net';
 import { HOUR } from '../lib/scheduler';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export interface Settings {
   clutchAlerts: boolean;
@@ -111,8 +110,8 @@ export const DEFAULT_SETTINGS: Settings = {
 export function defaultPersisted(): PersistedState {
   return {
     version: SCHEMA_VERSION,
-    playlists: [{ id: 'demo', name: 'Demo test streams', kind: 'demo', enabled: true }],
-    epgSources: [{ id: 'demo', name: 'Demo guide (seeded fixture)', kind: 'demo', enabled: true }],
+    playlists: [],
+    epgSources: [],
     favorites: [],
     hidden: [],
     channelOrder: [],
@@ -140,6 +139,19 @@ export function migrate(raw: unknown): PersistedState {
     // v1 → v2: leagues list + pick players were introduced.
     out = { ...out, leagues: s.leagues?.length ? s.leagues : base.leagues, pickPlayers: s.pickPlayers?.length ? s.pickPlayers : base.pickPlayers };
   }
+  if (v < 3) {
+    // v2 → v3: no built-in channels. Drop the demo sources and the old free-channel presets.
+    const builtIn = (x: { id: string; kind: string; url?: string }) =>
+      x.kind === 'demo' || x.id === 'demo' || /iptv-org.github.io/.test(x.url ?? '');
+    out = {
+      ...out,
+      playlists: out.playlists.filter((p) => !builtIn(p)),
+      epgSources: out.epgSources.filter((e) => !builtIn(e)),
+      favorites: out.favorites.filter((id) => !id.startsWith('demo:')),
+      lastChannelId: out.lastChannelId?.startsWith('demo:') ? undefined : out.lastChannelId,
+      prevChannelId: out.prevChannelId?.startsWith('demo:') ? undefined : out.prevChannelId,
+    } as PersistedState;
+  }
   return out;
 }
 
@@ -150,7 +162,7 @@ function legacySchedule(): ScheduleEntry[] {
     if (!raw) return [];
     const arr = JSON.parse(raw) as { id: string; title: string; start: string; end: string; channelId?: string }[];
     return arr
-      .map((p) => ({ id: `legacy:${p.id}`, title: p.title, start: Date.parse(p.start), end: Date.parse(p.end), channelId: p.channelId ? `demo:${p.channelId}` : undefined }))
+      .map((p) => ({ id: `legacy:${p.id}`, title: p.title, start: Date.parse(p.start), end: Date.parse(p.end), channelId: undefined }))
       .filter((e) => Number.isFinite(e.start) && Number.isFinite(e.end));
   } catch {
     return [];
@@ -164,7 +176,7 @@ let toastSeq = 0;
 export const useApp = create<AppState>((set, get) => ({
   ...defaultPersisted(),
   hydrated: false,
-  channels: DEMO_CHANNELS,
+  channels: [],
   programs: [],
   games: {},
   loadingSources: false,
@@ -208,8 +220,7 @@ export const useApp = create<AppState>((set, get) => ({
       try {
         let loaded: Channel[] = [];
         let epgUrl: string | undefined;
-        if (src.kind === 'demo') loaded = DEMO_CHANNELS;
-        else if (src.kind === 'm3u-file') {
+        if (src.kind === 'm3u-file') {
           const text = await kv.get<string>(`file:${src.id}`);
           loaded = text ? parseM3U(text, src.id, numberStart).channels : [];
         } else {
@@ -236,8 +247,7 @@ export const useApp = create<AppState>((set, get) => ({
       if (!src.enabled) continue;
       try {
         let loaded: Program[] = [];
-        if (src.kind === 'demo') loaded = await demoEpg.load(channels);
-        else {
+        {
           const text = src.kind === 'xmltv-file' ? await kv.get<string>(`file:${src.id}`) : await fetchText(src.url!);
           if (text) {
             const r = mapXmltvPrograms(text, channels, s.epgManual);
@@ -290,8 +300,8 @@ export async function hydrate() {
   useApp.setState({
     ...state,
     hydrated: true,
-    channels: cachedChannels?.length ? cachedChannels : DEMO_CHANNELS,
-    currentId: state.lastChannelId ?? DEMO_CHANNELS[0].id,
+    channels: (cachedChannels ?? []).filter((c) => c.sourceId !== 'demo'),
+    currentId: state.lastChannelId,
   });
 
   // Coalesce bursts of updates into one write per tick, and flush when the page is hidden/closed,

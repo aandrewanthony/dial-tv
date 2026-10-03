@@ -9,6 +9,7 @@ import { kv } from '../store/db';
 import type { Channel } from '../types';
 import { ChannelMark, Toggle } from '../components/ui';
 import { ChannelPicker } from '../components/ChannelPicker';
+import { AddPlaylist } from '../components/AddPlaylist';
 import { canonicalNetwork, matchNetwork } from '../lib/channelMatch';
 import { redactUrl, safeUrl } from '../lib/url';
 import { LEAGUES } from '../lib/sports';
@@ -41,34 +42,11 @@ export default function SettingsPage() {
   );
 }
 
-const IPTV_ORG = [
-  { name: 'Free sports', size: '~450', url: 'https://iptv-org.github.io/iptv/categories/sports.m3u' },
-  { name: 'Free US channels', size: '~1,450', url: 'https://iptv-org.github.io/iptv/countries/us.m3u' },
-  { name: 'News', size: '~800', url: 'https://iptv-org.github.io/iptv/categories/news.m3u' },
-  { name: 'Everything', size: '~11,000', url: 'https://iptv-org.github.io/iptv/index.m3u' },
-];
-
 function Sources() {
   const s = useApp();
-  const [name, setName] = useState('');
-  const [url, setUrl] = useState('');
   const [epgUrl, setEpgUrl] = useState('');
   const [err, setErr] = useState<string>();
 
-  const addPlaylist = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const u = safeUrl(url);
-    if (!u) return setErr('Enter a valid http(s) URL');
-    setErr(undefined);
-    s.update((st) => ({ playlists: [...st.playlists, { id: `pl${Date.now()}`, name: name || new URL(u).hostname, kind: 'm3u-url', url: u, enabled: true }] }));
-    setName('');
-    setUrl('');
-    await useApp.getState().loadSources();
-  };
-  const addPreset = async (presetName: string, presetUrl: string) => {
-    s.update((st) => ({ playlists: [...st.playlists, { id: `pl${Date.now()}`, name: presetName, kind: 'm3u-url', url: presetUrl, enabled: true }] }));
-    await useApp.getState().loadSources();
-  };
   const addEpg = async (e: React.FormEvent) => {
     e.preventDefault();
     const u = safeUrl(epgUrl);
@@ -77,11 +55,10 @@ function Sources() {
     setEpgUrl('');
     await useApp.getState().loadSources();
   };
-  const addFile = async (f: File, kind: 'm3u' | 'xmltv') => {
-    const id = `${kind}${Date.now()}`;
+  const addXmltvFile = async (f: File) => {
+    const id = `xmltv${Date.now()}`;
     await kv.set(`file:${id}`, await f.text());
-    if (kind === 'm3u') s.update((st) => ({ playlists: [...st.playlists, { id, name: f.name, kind: 'm3u-file', enabled: true }] }));
-    else s.update((st) => ({ epgSources: [...st.epgSources, { id, name: f.name, kind: 'xmltv-file', enabled: true }] }));
+    s.update((st) => ({ epgSources: [...st.epgSources, { id, name: f.name, kind: 'xmltv-file', enabled: true }] }));
     await useApp.getState().loadSources();
   };
 
@@ -92,34 +69,20 @@ function Sources() {
           <h2>Playlists</h2>
           <button onClick={() => void s.loadSources()} disabled={s.loadingSources}>{s.loadingSources ? <Loader2 className="spin" /> : <RefreshCw />} Reload all</button>
         </div>
-        <p className="muted">M3U/M3U8 playlists from providers you subscribe to. Everything stays on this device.{!isDesktop() && ' In the browser, the playlist host must allow cross-origin requests — the desktop app has no such limit.'}</p>
+        <p className="muted">Your M3U/M3U8 playlists, by link or file. Everything stays on this device.{!isDesktop() && ' In the browser, the playlist host must allow cross-origin requests — the desktop app has no such limit.'}</p>
         {s.playlists.map((p) => (
           <div className="srcRow" key={p.id}>
             <Toggle on={p.enabled} onChange={(v) => { s.update((st) => ({ playlists: st.playlists.map((x) => (x.id === p.id ? { ...x, enabled: v } : x)) })); setTimeout(() => void useApp.getState().loadSources(), 0); }} />
             <div>
               <b>{p.name}</b>
-              <small>{p.kind === 'm3u-url' ? redactUrl(p.url!) : p.kind === 'm3u-file' ? 'Local file' : 'Built-in'}{p.channelCount != null && ` · ${p.channelCount} channels`}</small>
+              <small>{p.kind === 'm3u-url' ? redactUrl(p.url!) : 'Local file'}{p.channelCount != null && ` · ${p.channelCount} channels`}</small>
               {p.error && <small className="err"><AlertTriangle /> {p.error}</small>}
             </div>
-            {p.kind !== 'demo' && <button className="icon" aria-label="Remove" onClick={() => { s.update((st) => ({ playlists: st.playlists.filter((x) => x.id !== p.id) })); void kv.del(`file:${p.id}`); setTimeout(() => void useApp.getState().loadSources(), 0); }}><Trash2 /></button>}
+            {<button className="icon" aria-label="Remove" onClick={() => { s.update((st) => ({ playlists: st.playlists.filter((x) => x.id !== p.id) })); void kv.del(`file:${p.id}`); setTimeout(() => void useApp.getState().loadSources(), 0); }}><Trash2 /></button>}
           </div>
         ))}
-        <div className="presets">
-          <b>Free channels from iptv-org</b>
-          <small className="muted">Community list of publicly available free streams. Some streams go offline or are region-locked; it doesn't carry cable networks like ESPN or FOX.</small>
-          <div className="row">
-            {IPTV_ORG.map((p) => {
-              const added = s.playlists.some((x) => x.url === p.url);
-              return <button key={p.url} disabled={added || s.loadingSources} onClick={() => void addPreset(p.name, p.url)}>{added ? `✓ ${p.name}` : `+ ${p.name}`} <small className="muted">{p.size}</small></button>;
-            })}
-          </div>
-        </div>
-        <form className="row" onSubmit={addPlaylist}>
-          <input className="field small" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <input className="field" placeholder="https://provider.example/playlist.m3u" value={url} onChange={(e) => setUrl(e.target.value)} />
-          <button className="primary" disabled={!url}><Link2 /> Add URL</button>
-        </form>
-        <label className="upload"><Upload /><b>IMPORT M3U FILE</b><input type="file" accept=".m3u,.m3u8,.txt" onChange={(e) => e.target.files?.[0] && void addFile(e.target.files[0], 'm3u')} /></label>
+        {!s.playlists.length && <p className="muted">No playlists yet — add yours below.</p>}
+        <AddPlaylist />
       </section>
 
       <section className="panel">
@@ -130,17 +93,17 @@ function Sources() {
             <Toggle on={p.enabled} onChange={(v) => { s.update((st) => ({ epgSources: st.epgSources.map((x) => (x.id === p.id ? { ...x, enabled: v } : x)) })); setTimeout(() => void useApp.getState().loadSources(), 0); }} />
             <div>
               <b>{p.name}</b>
-              <small>{p.kind === 'xmltv-url' ? redactUrl(p.url!) : p.kind === 'xmltv-file' ? 'Local file' : 'Built-in'}{p.programCount != null && ` · ${p.programCount} listings`}</small>
+              <small>{p.kind === 'xmltv-url' ? redactUrl(p.url!) : 'Local file'}{p.programCount != null && ` · ${p.programCount} listings`}</small>
               {p.error && <small className="err"><AlertTriangle /> {p.error}</small>}
             </div>
-            {p.kind !== 'demo' && <button className="icon" aria-label="Remove" onClick={() => { s.update((st) => ({ epgSources: st.epgSources.filter((x) => x.id !== p.id) })); void kv.del(`file:${p.id}`); setTimeout(() => void useApp.getState().loadSources(), 0); }}><Trash2 /></button>}
+            {<button className="icon" aria-label="Remove" onClick={() => { s.update((st) => ({ epgSources: st.epgSources.filter((x) => x.id !== p.id) })); void kv.del(`file:${p.id}`); setTimeout(() => void useApp.getState().loadSources(), 0); }}><Trash2 /></button>}
           </div>
         ))}
         <form className="row" onSubmit={addEpg}>
           <input className="field" placeholder="https://provider.example/epg.xml.gz" value={epgUrl} onChange={(e) => setEpgUrl(e.target.value)} />
           <button className="primary" disabled={!epgUrl}><Link2 /> Add URL</button>
         </form>
-        <label className="upload small"><Upload /><b>IMPORT XMLTV FILE</b><input type="file" accept=".xml,.xmltv" onChange={(e) => e.target.files?.[0] && void addFile(e.target.files[0], 'xmltv')} /></label>
+        <label className="upload small"><Upload /><b>IMPORT XMLTV FILE</b><input type="file" accept=".xml,.xmltv" onChange={(e) => e.target.files?.[0] && void addXmltvFile(e.target.files[0])} /></label>
         {err && <p className="err">{err}</p>}
       </section>
     </div>

@@ -141,7 +141,7 @@ export default function GuidePage() {
           })}
         </div>
       </div>
-      {!rows.length && <p className="muted">{sportsOnly ? 'No sports programming found in the guide for this day.' : 'No channels.'}</p>}
+      {!rows.length && <p className="muted">{sportsOnly ? 'No sports programming found in the guide for this day.' : 'No channels yet. Add your playlist on the Watch page or in Settings.'}</p>}
       {sel && <ProgramDrawer p={sel} onClose={() => setSel(null)} />}
     </div>
   );

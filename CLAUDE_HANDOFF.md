@@ -10,7 +10,7 @@ src/
   pages/        Home (Game Day), Watch, Guide, Sports, Fantasy, Picks, Multiview, Schedule, Settings
   components/   GameCard + ScoreBug, SearchPalette, TeamPicker, ChannelPicker, ui primitives
   player/       Player (hls.js / mpegts.js / native)
-  providers/    types (Playlist/Epg/Sports/Fantasy interfaces), demo (seeded fixture guide), remote (M3U/XMLTV), espn, sleeper
+  providers/    types (Playlist/Epg/Sports/Fantasy interfaces), remote (M3U/XMLTV), espn, sleeper
   hooks/        useEngine (polling, clutch/red-zone/reminder alerts, pick grading, rules), useSports (watchability ranking)
   store/        app (zustand, persisted state + migrations), fantasy, db (IndexedDB kv)
   lib/          m3u, xmltv, url (validation/redaction), channelMatch (Smart Sports Mapper), scheduler, sports (clutch, odds, grading), net, notify, seed
@@ -24,8 +24,8 @@ build/          Icon source (icon.svg) + generated icon.png / icon.ico (npm run 
 - [x] main.tsx split into routes/pages/components/stores
 - [x] Robust M3U (attrs incl. quoted commas, tvg-chno, EXTGRP, EXTVLCOPT, Kodi pipe headers, BOM, dupes, unsafe URL rejection, header url-tvg)
 - [x] XMLTV parser (tz offsets → UTC, open-ended programmes, sports/new flags, gz) + tvg-id/name/manual mapping UI
-- [x] Provider interfaces + ESPN, Sleeper, demo, remote implementations
-- [x] Deterministic seeded demo guide
+- [x] Provider interfaces + ESPN, Sleeper, remote (M3U/XMLTV) implementations
+- [x] No built-in channels (v0.3): the app starts empty and only plays the user's own M3U link/file; schema v3 migration removes old demo + iptv-org sources
 - [x] Scheduler: day timeline, drag/resize (15-min snap), lanes, conflicts, edit modal, notes, reminders, team/title/block rules
 - [x] Guide: virtualized rows, true time axis, 30/60/120 zoom, now line, day picker, Now, details drawer
 - [x] Player: loading/error/retry, fallback URLs, quality/audio/subs, keys, PiP, theater, last channel, ch up/down, number entry, stream health
