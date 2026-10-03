@@ -13,6 +13,9 @@ export default function WatchPage() {
   const [group, setGroup] = useState<string>('All');
   const [filter, setFilter] = useState('');
   const [pinned, setPinned] = useState(false);
+  // Big public playlists have 10k+ channels: render in pages to keep the page fast.
+  const [limit, setLimit] = useState(240);
+  useEffect(() => setLimit(240), [group, filter]);
   /** Desktop mini player: shrink to a small always-on-top window in theater mode. */
   const togglePin = async () => {
     const next = !pinned;
@@ -115,7 +118,7 @@ export default function WatchPage() {
         <input className="field small" placeholder="Filter or channel #" value={filter} onChange={(e) => setFilter(e.target.value)} />
       </div>
       <div className="channels">
-        {shown.map((c) => {
+        {shown.slice(0, limit).map((c) => {
           const np = nowPlaying(s.programs, c.id);
           return (
             <button key={c.id} className={current.id === c.id ? 'selected' : ''} onClick={() => s.tune(c.id)}>
@@ -130,6 +133,7 @@ export default function WatchPage() {
           );
         })}
         {!shown.length && <p className="muted">No channels match.</p>}
+        {shown.length > limit && <button className="moreBtn" onClick={() => setLimit((l) => l + 480)}>Show more · {shown.length - limit} more channels (or type to filter)</button>}
       </div>
     </div>
   );

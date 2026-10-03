@@ -41,6 +41,13 @@ export default function SettingsPage() {
   );
 }
 
+const IPTV_ORG = [
+  { name: 'Free sports', size: '~450', url: 'https://iptv-org.github.io/iptv/categories/sports.m3u' },
+  { name: 'Free US channels', size: '~1,450', url: 'https://iptv-org.github.io/iptv/countries/us.m3u' },
+  { name: 'News', size: '~800', url: 'https://iptv-org.github.io/iptv/categories/news.m3u' },
+  { name: 'Everything', size: '~11,000', url: 'https://iptv-org.github.io/iptv/index.m3u' },
+];
+
 function Sources() {
   const s = useApp();
   const [name, setName] = useState('');
@@ -56,6 +63,10 @@ function Sources() {
     s.update((st) => ({ playlists: [...st.playlists, { id: `pl${Date.now()}`, name: name || new URL(u).hostname, kind: 'm3u-url', url: u, enabled: true }] }));
     setName('');
     setUrl('');
+    await useApp.getState().loadSources();
+  };
+  const addPreset = async (presetName: string, presetUrl: string) => {
+    s.update((st) => ({ playlists: [...st.playlists, { id: `pl${Date.now()}`, name: presetName, kind: 'm3u-url', url: presetUrl, enabled: true }] }));
     await useApp.getState().loadSources();
   };
   const addEpg = async (e: React.FormEvent) => {
@@ -93,6 +104,16 @@ function Sources() {
             {p.kind !== 'demo' && <button className="icon" aria-label="Remove" onClick={() => { s.update((st) => ({ playlists: st.playlists.filter((x) => x.id !== p.id) })); void kv.del(`file:${p.id}`); setTimeout(() => void useApp.getState().loadSources(), 0); }}><Trash2 /></button>}
           </div>
         ))}
+        <div className="presets">
+          <b>Free channels from iptv-org</b>
+          <small className="muted">Community list of publicly available free streams. Some streams go offline or are region-locked; it doesn't carry cable networks like ESPN or FOX.</small>
+          <div className="row">
+            {IPTV_ORG.map((p) => {
+              const added = s.playlists.some((x) => x.url === p.url);
+              return <button key={p.url} disabled={added || s.loadingSources} onClick={() => void addPreset(p.name, p.url)}>{added ? `✓ ${p.name}` : `+ ${p.name}`} <small className="muted">{p.size}</small></button>;
+            })}
+          </div>
+        </div>
         <form className="row" onSubmit={addPlaylist}>
           <input className="field small" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
           <input className="field" placeholder="https://provider.example/playlist.m3u" value={url} onChange={(e) => setUrl(e.target.value)} />
