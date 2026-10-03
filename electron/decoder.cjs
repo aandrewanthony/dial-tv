@@ -101,6 +101,12 @@ function parseProbe(stderr) {
     resolution: v ? (/(\d{3,4})x(\d{3,4})/.exec(vrest)?.slice(1, 3).join('x') ?? null) : null,
     pixFmt,
     profile,
+    // Movies / recordings have a fixed length; live channels report "Duration: N/A".
+    duration: (() => {
+      const d = /Duration: (\d+):(\d\d):(\d\d(?:\.\d+)?)/.exec(stderr);
+      const secs = d ? +d[1] * 3600 + +d[2] * 60 + +d[3] : 0;
+      return secs > 0 ? secs : null;
+    })(),
   };
 }
 
@@ -157,6 +163,8 @@ function probe(bin, url, headers, { timeoutMs = 15000, signal } = {}) {
 /** ffmpeg args that turn any input into browser-playable H.264/AAC MPEG-TS. */
 function transcodeArgs(url, headers, info) {
   const a = inputArgs(url, headers, 'warning'); // warnings include upstream "HTTP error 4xx"
+  // Movies: read at real-time pace so a 2-hour file isn't converted and buffered all at once.
+  if (info?.duration) a.splice(a.indexOf('-i'), 0, '-re');
   a.push('-map', '0:v:0?', '-map', '0:a:0?', '-sn', '-dn');
   if (!needsVideoTranscode(info)) {
     a.push('-c:v', 'copy');
@@ -241,48 +249,58 @@ function start(app, ipcMain) {
     }
     if (closed || res.destroyed) return release();
 
-    try {
-      ff = spawn(bin, transcodeArgs(src, headers, info), { windowsHide: true });
-    } catch (e) {
-      console.error('[decoder] could not start ffmpeg:', e?.code || e?.message);
-      release();
-      res.writeHead(502, cors);
-      return res.end();
-    }
-    sessions.add(ff);
-    let stderr = '';
-    let upstream = null;
-    let started = false;
-    let done = false;
-    const finish = (code) => {
-      if (done) return;
-      done = true;
-      sessions.delete(ff);
-      release();
-      if (!started && !res.headersSent && !res.destroyed) res.writeHead(upstream >= 400 && upstream < 500 ? upstream : 502, cors);
-      res.end();
-      if (code && stderr && !closed) console.error('[decoder]', redactText(stderr.trim().split('\n').slice(-3).join(' | ')));
-    };
-    ff.on('error', (e) => {
-      console.error('[decoder] ffmpeg failed:', e?.code || e?.message);
-      finish(-1);
-    });
-    ff.on('close', (code) => finish(code));
-    ff.stderr?.on('data', (d) => {
-      stderr = (stderr + d).slice(-4000);
-      if (!started && upstream === null) {
-        upstream = parseHttpStatus(stderr);
-        if (upstream && ff.exitCode === null) ff.kill('SIGKILL'); // report it now instead of after retries
+    // Like VLC, retry once when the server refuses or drops the first connection attempt
+    // (busy single-viewer servers, RTMP/RTSP servers restarting); otherwise report the failure.
+    const launch = (attempt) => {
+      try {
+        ff = spawn(bin, transcodeArgs(src, headers, info), { windowsHide: true });
+      } catch (e) {
+        console.error('[decoder] could not start ffmpeg:', e?.code || e?.message);
+        release();
+        res.writeHead(502, cors);
+        return res.end();
       }
-    });
-    // Send headers only once ffmpeg produces output, so failures can still return an error status.
-    ff.stdout?.once('data', (chunk) => {
-      if (res.destroyed) return;
-      started = true;
-      res.writeHead(200, { ...cors, 'Content-Type': 'video/mp2t' });
-      res.write(chunk);
-      ff.stdout.pipe(res);
-    });
+      const proc = ff;
+      sessions.add(proc);
+      let stderr = '';
+      let upstream = null;
+      let started = false;
+      let done = false;
+      const finish = (code) => {
+        if (done) return;
+        done = true;
+        sessions.delete(proc);
+        const transient = /connection refused|connection reset|connection timed out|end of file|i\/o error/i.test(stderr);
+        if (!started && !closed && !res.destroyed && attempt === 0 && !upstream && transient) {
+          return setTimeout(() => { if (!closed && !res.destroyed) launch(1); else release(); }, 1000);
+        }
+        release();
+        if (!started && !res.headersSent && !res.destroyed) res.writeHead(upstream >= 400 && upstream < 500 ? upstream : 502, cors);
+        res.end();
+        if (code && stderr && !closed) console.error('[decoder]', redactText(stderr.trim().split('\n').slice(-3).join(' | ')));
+      };
+      proc.on('error', (e) => {
+        console.error('[decoder] ffmpeg failed:', e?.code || e?.message);
+        finish(-1);
+      });
+      proc.on('close', (code) => finish(code));
+      proc.stderr?.on('data', (d) => {
+        stderr = (stderr + d).slice(-4000);
+        if (!started && upstream === null) {
+          upstream = parseHttpStatus(stderr);
+          if (upstream && proc.exitCode === null) proc.kill('SIGKILL'); // report it now instead of after retries
+        }
+      });
+      // Send headers only once ffmpeg produces output, so failures can still return an error status.
+      proc.stdout?.once('data', (chunk) => {
+        if (res.destroyed) return;
+        started = true;
+        res.writeHead(200, { ...cors, 'Content-Type': 'video/mp2t' });
+        res.write(chunk);
+        proc.stdout.pipe(res);
+      });
+    };
+    launch(0);
     if (closed) onClose();
   });
   server.listen(0, '127.0.0.1', () => { port = server.address().port; });

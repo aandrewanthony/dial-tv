@@ -28,6 +28,7 @@ for (const [name, codec] of Object.entries(variants)) {
 // "Works in VLC" extras: a movie file with AC-3 audio and an audio-only radio stream.
 const extra = {
   'movie_h264_ac3.mkv': ['-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=330:sample_rate=48000', '-t', '60', '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '3M', '-c:a', 'ac3', '-b:a', '256k'],
+  'movie_h264_ac3.mp4': ['-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=330:sample_rate=48000', '-t', '60', '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '3M', '-c:a', 'ac3', '-b:a', '256k', '-movflags', '+faststart'],
   'radio.mp3': ['-f', 'lavfi', '-i', 'sine=frequency=550:sample_rate=44100', '-t', '120', '-c:a', 'libmp3lame', '-b:a', '128k'],
 };
 for (const [name, args] of Object.entries(extra)) {

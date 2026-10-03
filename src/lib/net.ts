@@ -29,6 +29,8 @@ export interface StreamInfo {
   audio: string | null;
   interlaced: boolean;
   resolution: string | null;
+  /** Seconds for movies/recordings; null for live channels. */
+  duration?: number | null;
   /** e.g. yuv420p10le; 10-bit / 4:2:2 H.264 needs converting. */
   pixFmt?: string | null;
   /** e.g. "High 10", "Main". */

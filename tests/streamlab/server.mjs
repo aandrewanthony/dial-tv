@@ -57,6 +57,7 @@ ${url}
   add('COMPAT Wrong content-type', `http://127.0.0.1:${PORT}/compat/wrongtype`);
   add('COMPAT Slow start (8s)', `http://127.0.0.1:${PORT}/compat/slow`);
   if (fs.existsSync(path.join(dir, 'movie_h264_ac3.mkv'))) add('COMPAT Movie MKV + AC-3', `http://127.0.0.1:${PORT}/compat/movie.mkv`);
+  if (fs.existsSync(path.join(dir, 'movie_h264_ac3.mp4'))) add('COMPAT Movie MP4 + AC-3 (plays video natively, audio needs decoder)', `http://127.0.0.1:${PORT}/compat/movie.mp4`);
   if (fs.existsSync(path.join(dir, 'radio.mp3'))) add('RADIO MP3 audio-only', `http://127.0.0.1:${PORT}/compat/radio.mp3`);
   add('COMPAT UDP multicast-style link', 'udp://@127.0.0.1:5004');
   add('COMPAT RTMP link', 'rtmp://127.0.0.1:1935/live/test');
@@ -64,7 +65,7 @@ ${url}
   const udp = () => spawn(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-re', '-stream_loop', '-1', '-i', h264, '-c', 'copy', '-f', 'mpegts', 'udp://127.0.0.1:5004?pkt_size=1316'], { windowsHide: true }).on('close', () => setTimeout(udp, 500));
   udp();
   // RTMP: ffmpeg as a one-client RTMP server, restarted after each client.
-  const rtmp = () => spawn(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-re', '-stream_loop', '-1', '-i', h264, '-c', 'copy', '-f', 'flv', '-listen', '1', 'rtmp://127.0.0.1:1935/live/test'], { windowsHide: true }).on('close', () => setTimeout(rtmp, 500));
+  const rtmp = () => spawn(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-re', '-stream_loop', '-1', '-i', h264, '-c', 'copy', '-f', 'flv', '-listen', '1', 'rtmp://127.0.0.1:1935/live/test'], { windowsHide: true }).on('close', () => setImmediate(rtmp));
   rtmp();
 }
 
@@ -100,6 +101,7 @@ http.createServer((req, res) => {
     if (name === 'wrongtype') { const r = res.writeHead.bind(res); res.writeHead = (c, h) => r(c, { ...h, 'Content-Type': 'text/html' }); return live(res, h264); }
     if (name === 'slow') { return setTimeout(() => live(res, h264), 8000); }
     if (name === 'movie.mkv') return serveFile(req, res, path.join(dir, 'movie_h264_ac3.mkv'), 'video/x-matroska');
+    if (name === 'movie.mp4') return serveFile(req, res, path.join(dir, 'movie_h264_ac3.mp4'), 'video/mp4');
     if (name === 'radio.mp3') return serveFile(req, res, path.join(dir, 'radio.mp3'), 'audio/mpeg');
   }
   if (u === '/list.m3u') { res.writeHead(200, { 'Content-Type': 'audio/x-mpegurl' }); return res.end(m3u); }

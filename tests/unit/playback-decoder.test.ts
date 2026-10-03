@@ -14,10 +14,20 @@ const PLAIN = '  Stream #0:0[0x100]: Video: h264 ([27][0][0][0] / 0x001B), yuv42
 
 describe('decoder probe parsing', () => {
   it('reads codecs, profile, pixel format and interlacing', () => {
-    expect(d.parseProbe(HIGH10)).toEqual({ video: 'h264', audio: 'aac', interlaced: false, resolution: '1920x1080', pixFmt: 'yuv420p10le', profile: 'High 10' });
+    expect(d.parseProbe(HIGH10)).toEqual({ video: 'h264', audio: 'aac', interlaced: false, resolution: '1920x1080', pixFmt: 'yuv420p10le', profile: 'High 10', duration: null });
     expect(d.parseProbe(MPEG2)).toMatchObject({ video: 'mpeg2video', audio: 'ac3', interlaced: true, profile: 'Main', pixFmt: 'yuv420p' });
     expect(d.parseProbe(PLAIN)).toMatchObject({ video: 'h264', profile: null, pixFmt: 'yuv420p' });
     expect(d.parseProbe('Connection refused')).toBeNull();
+  });
+  it('tells movies (fixed duration) from live channels and paces movies in real time', () => {
+    const movie = ['  Duration: 01:52:07.48, start: 0.000000, bitrate: 3000 kb/s', '  Stream #0:0: Video: h264 (High), yuv420p, 1280x720', '  Stream #0:1: Audio: ac3, 48000 Hz, stereo'].join('\n');
+    const live = ['  Duration: N/A, start: 1.4, bitrate: N/A', '  Stream #0:0[0x100]: Video: h264 (High), yuv420p, 1280x720'].join('\n');
+    expect(d.parseProbe(movie).duration).toBeCloseTo(6727.48, 1);
+    expect(d.parseProbe(live).duration).toBeNull();
+    const ma: string[] = d.transcodeArgs('http://h/m.mkv', {}, d.parseProbe(movie));
+    expect(ma.indexOf('-re')).toBeGreaterThan(-1);
+    expect(ma.indexOf('-re')).toBeLessThan(ma.indexOf('-i'));
+    expect(d.transcodeArgs('http://h/l.ts', {}, d.parseProbe(live))).not.toContain('-re');
   });
   it('re-encodes 10-bit / 4:2:2 H.264 instead of copying it', () => {
     expect(d.needsVideoTranscode(d.parseProbe(HIGH10))).toBe(true);

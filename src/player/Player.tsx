@@ -151,6 +151,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     let reconnects = 0;
     let netRetries = 0;
     let mediaRetries = 0;
+    let vod = false; // a movie/recording: plays to the end, no live-edge chasing, no reconnect at the end
     let expectVideo: boolean | undefined; // what the engine found in the stream
     let expectAudio: boolean | undefined;
     setStatus('loading');
@@ -225,6 +226,11 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
       let playUrl = url;
       let kind: Engine;
       if (mode === 'decoder') {
+        // Know first whether this is a movie (fixed length) or live; the decoder server reuses this
+        // probe from its cache, so the provider still sees one connection at a time.
+        const pi = await desktop()!.decoder!.probe(url, headers).catch(() => null);
+        if (cancelled) return;
+        if (pi) { setStreamInfo(pi); vod = !!pi.duration; }
         // ffmpeg gets the original URL (user:pass@ included) and the playlist headers.
         const u = await desktop()!.decoder!.url(url, headers);
         if (cancelled) return;
@@ -340,7 +346,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
           }, 1000 * 2 ** (reconnects - 1));
         };
         const open = () => {
-          const p = mpegts.createPlayer({ type: mode === 'direct' && playUrl.toLowerCase().includes('.flv') ? 'flv' : 'mpegts', isLive: true, url: playUrl }, { enableWorker: true, liveBufferLatencyChasing: true });
+          const p = mpegts.createPlayer({ type: mode === 'direct' && playUrl.toLowerCase().includes('.flv') ? 'flv' : 'mpegts', isLive: !vod, url: playUrl }, { enableWorker: true, liveBufferLatencyChasing: !vod });
           player = p;
           p.attachMediaElement(v);
           p.on(mpegts.Events.ERROR, (type: string, detail: string, info?: { code?: number }) => {
@@ -349,7 +355,8 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
             if (type === mpegts.ErrorTypes.MEDIA_ERROR) return fail(`Stream error: ${type} ${detail}`);
             reconnect(`Stream error: ${type} ${detail}`, code);
           });
-          p.on(mpegts.Events.LOADING_COMPLETE, () => { if (player === p) reconnect('Stream ended'); }); // a live feed never "completes"
+          // A live feed never "completes"; a movie does, and then just plays out what's buffered.
+          p.on(mpegts.Events.LOADING_COMPLETE, () => { if (player === p && !vod) reconnect('Stream ended'); });
           p.on(mpegts.Events.MEDIA_INFO, (mi: { hasVideo?: boolean; hasAudio?: boolean }) => {
             expectVideo = mi.hasVideo;
             expectAudio = mi.hasAudio;
