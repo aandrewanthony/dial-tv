@@ -288,7 +288,7 @@ export function maybeAutoRefresh() {
   if (!app.hydrated) return;
   // Playlists: optional daily refresh.
   if (prefs.playlistRefresh === 'daily' && !app.loadingSources) {
-    const urls = app.playlists.filter((p) => p.enabled && p.kind === 'm3u-url');
+    const urls = app.playlists.filter((p) => p.enabled && (p.kind === 'm3u-url' || p.kind === 'xtream'));
     const oldest = Math.min(...urls.map((p) => p.lastLoaded ?? 0));
     if (urls.length && Date.now() - oldest > 24 * 3600_000 && Date.now() - lastAutoPlaylists > 24 * 3600_000) {
       lastAutoPlaylists = Date.now();

@@ -52,10 +52,14 @@ Favorites, reorder/hide (dnd), global search, sports hub with live/upcoming/fina
 - HLS buffering on jittery networks is not improved yet (the lab's HLS channel also throws a Chromium decode error in the baseline).
 - **Remote Control mode** (phone → desktop over LAN WebSocket with pairing). Add a small WebSocket server in `electron/main.cjs` + a `/remote` route.
 - **Multiple fantasy platforms** (Yahoo needs OAuth — do via a server-side or Electron safeStorage token store, never localStorage).
-- **Xtream Codes login** as a source type (player_api.php) — today use the provider's M3U URL.
+- Xtream series (get_series + one get_series_info per show) are not loaded; Xtream movies and live are. Multiview/DVR should respect `PlaylistSource.maxConnections`.
 - **Personal Linear Channel** (local/VOD pseudo-channel) from the original backlog.
 - **Code signing:** Windows cert, and Apple Developer ID + notarization (steps in BUILD.md). Then add electron-updater.
-- Secrets: playlist URLs can embed provider credentials and are stored in IndexedDB. Move to the OS keychain via Electron `safeStorage` on desktop.
+- Secrets: imported M3U *files* (`file:<id>` in IndexedDB) can still contain provider logins in their stream URLs.
+
+## v0.8 (Xtream Codes + playlist logins in the keychain)
+- Xtream Codes login (providers/xtream.ts): server + username + password in Add Playlist. player_api.php (auth, live categories/streams, VOD categories/streams) maps onto the same Channel shape as parseM3U; xmltv.php becomes the playlist's guide source. Account status/expiry/max connections from user_info are on the playlist record (`account`, `maxConnections`).
+- Schema v6. store/sourceSecrets.ts: on desktop, playlist links, Xtream passwords and guide links are saved in the OS keychain (lib/secrets.ts) and the IndexedDB copy carries only `keychain: true`; the channel cache stores stream URLs with login placeholders. Web is unchanged. The move happens on the first save after loading, only after the keychain write succeeded (lossless). Settings export leaves logins out unless "Include playlist links and logins" is checked; import reuses this device's logins for the same source ids.
 
 ## Built-in decoder (v0.4)
 `electron/decoder.cjs` probes each stream with the bundled ffmpeg (`resources/ffmpeg`) and, when Chromium can't decode its codecs, serves an H.264/AAC MPEG-TS conversion from a token-protected 127.0.0.1 server. The player (`src/player/Player.tsx`) probes in parallel with direct playback. It switches when the codecs are unsupported, when playback errors, or when picture or sound bytes aren't decoding (silent AC-3 / MPEG-2 failures). Channels that needed the decoder are remembered (`settings.decoderChannels`). Verified with `tests/streamlab` (13/13 formats on Windows packaged build; CI runs it on packaged Mac arm64 + x64).

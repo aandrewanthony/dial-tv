@@ -4,12 +4,15 @@ import type {
 } from '../types';
 import { kv } from './db';
 import { m3uUrlProvider } from '../providers/remote';
+import { xtreamProvider } from '../providers/xtream';
+import { redactUrl } from '../lib/url';
+import { KEYCHAIN_READ_ERROR, MISSING_LOGIN_ERROR, needsSeal, openChannels, openPersisted, sealChannels, sealPersisted } from './sourceSecrets';
 import { parseM3U } from '../lib/m3u';
 import { HOUR } from '../lib/scheduler';
 import { applyPrefs, localeCountry, organize, orderGroups, type GroupInfo, type OrgChannel, type Organized } from '../lib/channelOrg';
 import { useChannelPrefs, type ChannelPrefs } from './channelPrefs';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export interface Settings {
   clutchAlerts: boolean;
@@ -232,7 +235,22 @@ export function migrate(raw: unknown): PersistedState {
     delete legacy.pickPlayers;
     out = { ...legacy, sportsOnboarded: s.sportsOnboarded ?? out.favTeams.length > 0 };
   }
+  if (v < 6) {
+    // v5 → v6: playlist logins (links with credentials, Xtream passwords) move to the OS keychain on
+    // desktop. That needs async keychain access, so it happens on the first save after loading
+    // (hydrate → store/sourceSecrets.ts#sealPersisted, and only after the keychain write succeeded):
+    // the playlist records stay exactly as they were here. Remembered dismissed guide links can embed
+    // the same login, so they are kept redacted from now on (discoverEpg compares redacted links).
+    const dismissed = Array.isArray(out.dismissedEpgUrls) ? out.dismissedEpgUrls : [];
+    out = { ...out, dismissedEpgUrls: [...new Set(dismissed.map(dismissKey))] };
+  }
   return out;
+}
+
+/** How a dismissed guide link is remembered: redacted, so the list never holds a login. */
+export function dismissKey(url: string): string {
+  const r = redactUrl(url);
+  return r === '[invalid url]' ? url : r;
 }
 
 /** v0.1 stored scheduled demo programs in localStorage with ISO dates. */
@@ -280,7 +298,7 @@ export function dedupeChannelNumbers(channels: Channel[]): Channel[] {
   return changed ? out : channels;
 }
 
-type PlaylistMeta = Pick<PlaylistSource, 'lastLoaded' | 'channelCount' | 'error'>;
+type PlaylistMeta = Pick<PlaylistSource, 'lastLoaded' | 'channelCount' | 'error' | 'account' | 'maxConnections'>;
 
 /** Merge per-source load results into the CURRENT source list; removed sources are never re-added. */
 function mergeMeta<T extends { id: string }, M>(list: T[], meta: Map<string, M>): T[] {
@@ -320,9 +338,18 @@ export const useApp = create<AppState>((set, get) => {
       try {
         let loaded: Channel[] = [];
         let epgUrl: string | undefined;
+        let account: Pick<PlaylistMeta, 'account' | 'maxConnections'> = {};
+        // Login unreadable from the keychain, or left out of an imported backup: say so instead of "No URL".
+        if (src.keychain) throw new Error(KEYCHAIN_READ_ERROR);
+        if ((src.kind === 'm3u-url' && !src.url) || (src.kind === 'xtream' && !src.xtream?.password)) throw new Error(MISSING_LOGIN_ERROR);
         if (src.kind === 'm3u-file') {
           const text = await kv.get<string>(`file:${src.id}`);
           loaded = text ? parseM3U(text, src.id, numberStart).channels : [];
+        } else if (src.kind === 'xtream') {
+          const r = await xtreamProvider(src, numberStart).load();
+          loaded = r.channels;
+          epgUrl = r.epgUrl;
+          account = { account: r.account, maxConnections: r.account.maxConnections };
         } else {
           const r = await m3uUrlProvider(src, numberStart).load();
           loaded = r.channels;
@@ -330,7 +357,7 @@ export const useApp = create<AppState>((set, get) => {
         }
         results.set(src.id, loaded);
         numberStart += Math.ceil((loaded.length + 1) / 100) * 100;
-        plMeta.set(src.id, { lastLoaded: Date.now(), channelCount: loaded.length, error: undefined });
+        plMeta.set(src.id, { lastLoaded: Date.now(), channelCount: loaded.length, error: undefined, ...account });
         if (epgUrl) discoverEpg(src, epgUrl);
       } catch (e) {
         plMeta.set(src.id, { error: (e as Error).message });
@@ -351,14 +378,15 @@ export const useApp = create<AppState>((set, get) => {
       currentId:
         s.currentId && chIds.has(s.currentId) ? s.currentId : channels.find((c) => c.id === s.lastChannelId)?.id ?? (channels.find((c) => !c.kind || c.kind === 'live') ?? channels[0])?.id,
     }));
-    void kv.set('cache:channels', channels);
+    // Desktop: logins inside stream URLs are replaced by placeholders in the cached copy (sourceSecrets.ts).
+    void kv.set('cache:channels', sealChannels(channels, get().playlists));
   }
 
   /** Add (or update by id) the guide a playlist advertises via url-tvg, unless the user dismissed it. */
   function discoverEpg(src: PlaylistSource, epgUrl: string) {
     set((s) => {
       if (!s.playlists.some((p) => p.id === src.id)) return {};
-      if (s.dismissedEpgUrls.includes(epgUrl) || s.epgSources.some((e) => e.url === epgUrl)) return {};
+      if (s.dismissedEpgUrls.includes(epgUrl) || s.dismissedEpgUrls.includes(dismissKey(epgUrl)) || s.epgSources.some((e) => e.url === epgUrl)) return {};
       const id = `epg-${src.id}`;
       if (s.epgSources.some((e) => e.id === id)) {
         return { epgSources: s.epgSources.map((e) => (e.id === id ? { ...e, url: epgUrl, error: undefined } : e)) };
@@ -437,7 +465,7 @@ export const useApp = create<AppState>((set, get) => {
     removeEpgSource: async (id) => {
       set((s) => {
         const src = s.epgSources.find((e) => e.id === id);
-        const url = src?.kind === 'xmltv-url' ? src.url : undefined;
+        const url = src?.kind === 'xmltv-url' && src.url ? dismissKey(src.url) : undefined;
         return {
           epgSources: s.epgSources.filter((e) => e.id !== id),
           dismissedEpgUrls: url && !s.dismissedEpgUrls.includes(url) ? [...s.dismissedEpgUrls, url] : s.dismissedEpgUrls,
@@ -493,9 +521,12 @@ export async function hydrate() {
       /* ignore */
     }
   }
+  // Desktop: playlist logins saved in the OS keychain go back into the records (sourceSecrets.ts).
+  if (stored && typeof stored === 'object') stored = await openPersisted(stored);
   const state = migrate(stored);
   if (!stored && !readFailed) state.schedule = legacySchedule();
-  const cachedChannels = await kv.get<Channel[]>('cache:channels').catch(() => undefined);
+  const rawCached = await kv.get<Channel[]>('cache:channels').catch(() => undefined);
+  const cachedChannels = rawCached && openChannels(rawCached, state.playlists);
   useApp.setState({
     ...state,
     hydrated: true,
@@ -516,10 +547,13 @@ export async function hydrate() {
     // Coalesce bursts of updates into one write per tick, and flush when the page is hidden/closed,
     // so nothing is lost if the window closes right after an action.
     let pending = false;
+    // Saves run one after another: on desktop each first moves changed logins to the keychain.
+    let saving: Promise<unknown> = Promise.resolve();
     const flush = () => {
       pending = false;
       if (resetting) return;
-      void kv.put('state', pickPersisted(useApp.getState())).then(
+      const data = pickPersisted(useApp.getState());
+      saving = saving.then(() => sealPersisted(data)).then((sealed) => (resetting ? undefined : kv.put('state', sealed))).then(
         () => {
           if (useApp.getState().storageError === STORAGE_WRITE_ERROR) useApp.setState({ storageError: undefined });
         },
@@ -536,6 +570,13 @@ export async function hydrate() {
     });
     pagehideFlush = flush;
     window.addEventListener('pagehide', flush);
+    // Desktop, first start after the v6 upgrade (or a login saved in plain form): move logins to the
+    // keychain now, and re-save the channel cache with its stream-URL logins replaced by placeholders.
+    const now = useApp.getState();
+    if (needsSeal(now)) {
+      flush();
+      if (cachedChannels?.length) void kv.set('cache:channels', sealChannels(now.channels, now.playlists));
+    }
   }
 
   // Startup uses cached data only. Playlists are downloaded only when there is no cached copy
