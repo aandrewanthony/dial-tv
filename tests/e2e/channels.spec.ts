@@ -25,6 +25,14 @@ async function addBig(page: Page) {
 }
 
 const railGroups = (page: Page) => page.locator('.railItem[data-group*="|"]');
+/** The rail folds groups by country (home country open): open them all to count groups. */
+async function openAllCountries(page: Page) {
+  for (let i = 0; i < 60; i++) {
+    const closed = page.locator('.railFold[aria-expanded="false"]').first();
+    if (!(await closed.count())) return;
+    await closed.click();
+  }
+}
 
 test('big playlist: pick US + Sports, duplicates merged with a quality picker, hide a group, renumber', async ({ page }) => {
   test.setTimeout(90_000);
@@ -106,6 +114,7 @@ test('picker can be skipped and reopened from Live TV; "Show everything" keeps a
   await dlg.getByRole('button', { name: 'Close' }).click();
   await expect(dlg).toBeHidden();
   // Way fewer groups than the playlist's ~340 raw groups, and no duplicate rows.
+  await openAllCountries(page);
   const groups = await railGroups(page).count();
   expect(groups).toBeGreaterThan(20);
   expect(groups).toBeLessThan(120);
@@ -116,5 +125,37 @@ test('picker can be skipped and reopened from Live TV; "Show everything" keeps a
   await page.getByRole('button', { name: 'Choose channels' }).click();
   await expect(dlg).toBeVisible();
   await dlg.getByRole('button', { name: 'Show everything' }).click();
+  await openAllCountries(page);
   await expect(railGroups(page)).toHaveCount(groups);
+});
+
+test('sports rail lists every sport and filters by sport; light theme switches the whole app', async ({ page }) => {
+  test.setTimeout(90_000);
+  await addBig(page);
+  const dlg = page.getByRole('dialog', { name: 'Choose your channels' });
+  await expect(dlg).toBeVisible({ timeout: 30_000 });
+  await dlg.getByRole('button', { name: 'Show everything' }).click();
+
+  // Every sport has a row; ones without channels are greyed out (disabled).
+  const sports = page.locator('.railItem[data-group^="sport:"]');
+  await expect(sports).toHaveCount(16);
+  await expect(page.locator('.railItem[data-group="sport:tennis"]')).toBeDisabled();
+  await page.locator('.railItem[data-group="sport:football"]').click();
+  await expect(page.locator('.lineupTitle b')).toContainText('Football');
+  const names = await page.locator('.channels > button .lnName b').allInnerTexts();
+  expect(names.length).toBeGreaterThan(0);
+  for (const n of names) expect(n).toMatch(/NFL|Red ?Zone/i);
+
+  // The Sports section folds away.
+  await page.getByRole('button', { name: /^SPORTS/ }).click();
+  await expect(sports).toHaveCount(0);
+
+  // Light theme.
+  await page.goto('/#/settings/appearance');
+  await page.getByRole('button', { name: 'light', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  expect(bg).toBe('rgb(243, 244, 247)');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 });
