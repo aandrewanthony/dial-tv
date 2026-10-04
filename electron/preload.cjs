@@ -36,6 +36,11 @@ contextBridge.exposeInMainWorld('dialDesktop', {
     url: (src, headers, opts) => ipcRenderer.invoke('dial:decoder-url', String(src), headers ?? {}, opts ?? {}),
     infoFor: (src) => ipcRenderer.invoke('dial:decoder-info-for', String(src)),
   },
+  // Pause & rewind live TV: a rolling local buffer of one channel (see electron/timeshift.cjs).
+  timeshift: {
+    start: (id, url, headers) => ipcRenderer.invoke('timeshift:start', String(id), String(url), headers ?? {}),
+    stop: (id) => ipcRenderer.invoke('timeshift:stop', String(id)),
+  },
   // Remote Control (phone on the LAN). Commands arrive already validated by the main process.
   remote: {
     status: () => ipcRenderer.invoke('dial:remote-status'),

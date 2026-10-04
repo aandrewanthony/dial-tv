@@ -1181,3 +1181,11 @@ button.recPlay svg { width: 14px; height: 14px; margin-left: 2px; }
 .remoteDevice > div { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .remoteDevice small { color: var(--muted); font-size: 12px; }
 @media (max-width: 520px) { .qrCode { width: 160px; height: 160px; } }
+
+/* ---- Pause & rewind live TV (player/LiveDvrBar.tsx) ---- */
+.liveDvr .liveBehind { font: 600 12px/1 var(--mono); color: #ddd; white-space: nowrap; min-width: 52px; text-align: center; }
+.liveDvr .liveBehind.at { color: var(--accent); }
+.liveDvr .vodBtns button:disabled { opacity: .35; cursor: default; background: none; }
+.liveDvr .vodBtns .liveBtn { font: 700 11px/1 var(--mono); letter-spacing: .04em; padding: 6px 8px; border: 1px solid #ffffff40; color: #ddd; }
+.liveDvr .vodBtns .liveBtn.on { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 600px) { .liveDvr .vodBtns button:first-child, .liveDvr .vodBtns button:last-child { display: grid; } .liveDvr .liveBehind { display: none; } }

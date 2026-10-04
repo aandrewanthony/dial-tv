@@ -368,7 +368,7 @@ export default function WatchPage() {
           {lockedOut ? <LockedScreen /> : personal ? (
             <PersonalPlayer ref={player} def={personal} theater={theater} onTheater={toggleTheater} overlay={overlay} />
           ) : (
-            <Player key={`q:${variantChoice[current.id] ?? ''}`} ref={player} channel={current} theater={theater} onTheater={toggleTheater} overlay={overlay} />
+            <Player key={`q:${variantChoice[current.id] ?? ''}`} ref={player} channel={current} theater={theater} onTheater={toggleTheater} overlay={overlay} timeshift />
           )}
         </div>
         <div className="now">
