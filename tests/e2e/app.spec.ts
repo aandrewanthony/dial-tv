@@ -55,6 +55,41 @@ test('sports page shows mocked games with odds', async ({ page }) => {
   await expect(page.locator('.gameCard').filter({ hasText: 'Colts' })).toContainText('IND -4.5');
 });
 
+test('win probability: opens on demand and charts ESPN data', async ({ page }) => {
+  const summaries: string[] = [];
+  await page.route('https://site.api.espn.com/**/summary?*', (route) => {
+    const id = new URL(route.request().url()).searchParams.get('event') ?? '';
+    summaries.push(id);
+    const winprobability = [0.5, 0.42, 0.61, 0.35, 0.18].map((homeWinPercentage, i) => ({ homeWinPercentage, playId: String(i) }));
+    return route.fulfill({ json: { winprobability } });
+  });
+  await page.goto('/#/sports');
+  const card = page.locator('.gameCard').filter({ hasText: 'Steelers' });
+  await expect(card).toContainText('Final', { timeout: 10_000 });
+  expect(summaries).toEqual([]); // lazy: nothing fetched until opened
+  await card.getByRole('button', { name: 'Win probability' }).click();
+  await expect(card.getByRole('img', { name: /Win probability: CLE 18%, PIT 82%/ })).toBeVisible();
+  await expect(card.locator('.wpNow')).toContainText('82%');
+  await expect(card.locator('.wpNow')).toContainText('PIT');
+  // Closing and reopening uses the cache.
+  await card.getByRole('button', { name: 'Win probability' }).click();
+  await expect(card.locator('.wpPanel')).toHaveCount(0);
+  await card.getByRole('button', { name: 'Win probability' }).click();
+  await expect(card.locator('.wpChart')).toBeVisible();
+  expect(summaries).toEqual(['401872964']);
+});
+
+test('win probability: says so and hides the button when ESPN has none', async ({ page }) => {
+  await page.route('https://site.api.espn.com/**/summary?*', (route) => route.fulfill({ json: {} }));
+  await page.goto('/#/sports');
+  const card = page.locator('.gameCard').filter({ hasText: 'Steelers' });
+  await expect(card).toContainText('Final', { timeout: 10_000 });
+  await card.getByRole('button', { name: 'Win probability' }).click();
+  await expect(card.locator('.wpEmpty')).toContainText('no win probability');
+  await card.getByRole('button', { name: 'Win probability' }).click();
+  await expect(card.getByRole('button', { name: 'Win probability' })).toHaveCount(0);
+});
+
 test('schedule: create a custom block, it persists, conflicts are flagged', async ({ page }) => {
   await page.goto('/#/schedule');
   for (const title of ['Watch party', 'Overlap']) {
