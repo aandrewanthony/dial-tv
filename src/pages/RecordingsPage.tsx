@@ -21,6 +21,8 @@ export default function RecordingsPage() {
   const now = useNow(15_000);
   const [playing, setPlaying] = useState<{ rec: Recording; url: string }>();
   const [confirmDel, setConfirmDel] = useState<Recording>();
+  // Xtream accounts report how many streams they allow at once.
+  const providerMax = useApp((s) => s.playlists.reduce<number | undefined>((m, p) => (p.enabled !== false && p.maxConnections ? Math.min(m ?? Infinity, p.maxConnections) : m), undefined));
   useEffect(() => initDvr(), []);
 
   const groups = useMemo(() => {
@@ -89,7 +91,7 @@ export default function RecordingsPage() {
             <select className="field small" value={settings.padAfter} onChange={(e) => void b.settings({ padAfter: +e.target.value })}>{[0, 3, 5, 10, 15, 30].map((n) => <option key={n} value={n}>{n} min</option>)}</select>
           </label>
         </div>
-        <p className="muted small">Each recording is its own connection to your provider. Many providers allow only one or two at a time, and watching counts too.</p>
+        <p className="muted small">Each recording is its own connection to your provider, and watching counts too. {providerMax ? <>Your provider allows <b>{providerMax}</b> at once{settings.maxConcurrent >= providerMax ? ', so recording while you watch may cut one off' : ''}.</> : 'Many providers allow only one or two at a time.'}</p>
       </section>
 
       {!recordings.length && ready && (
