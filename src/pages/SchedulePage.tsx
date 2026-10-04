@@ -1,3 +1,4 @@
+import { useHealthDeps } from '../components/channels/useOrganized';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Bell, Plus, Repeat, Sparkles, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
@@ -230,7 +231,8 @@ function EditEntry({ entry, onClose }: { entry: ScheduleEntry; onClose: () => vo
   const exists = useApp((s) => s.schedule.some((x) => x.id === entry.id));
   const update = useApp((s) => s.update);
   const { channels, channelOrder, hidden } = useApp(useShallow((s) => ({ channels: s.channels, channelOrder: s.channelOrder, hidden: s.hidden })));
-  const chOptions = useMemo(() => orderedChannels({ channels, channelOrder, hidden }).map((c) => ({ id: c.id, label: `${c.number} · ${c.name}` })), [channels, channelOrder, hidden]);
+  const healthDeps = useHealthDeps();
+  const chOptions = useMemo(() => orderedChannels({ channels, channelOrder, hidden }).map((c) => ({ id: c.id, label: `${c.number} · ${c.name}` })), [channels, channelOrder, hidden, ...healthDeps]); // eslint-disable-line react-hooks/exhaustive-deps
   const [e, setE] = useState(entry);
   const toLocalInput = (ms: number) => {
     const d = new Date(ms - new Date(ms).getTimezoneOffset() * MIN);

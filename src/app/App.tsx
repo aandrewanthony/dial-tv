@@ -7,6 +7,7 @@ import { lockedSet, orderedChannels, sha256, showScore, useApp } from '../store/
 import { useEngine } from '../hooks/useEngine';
 import { dvrBridge, initDvr, useDvr } from '../lib/dvr';
 import { initRecRules } from '../lib/dvrRules';
+import { startDeadChecker } from '../lib/deadChecker';
 import { SearchPalette } from '../components/SearchPalette';
 import { Modal } from '../components/ui';
 import { clutchInfo } from '../lib/sports';
@@ -71,6 +72,7 @@ const openWatch = () => navigate('watch');
 export default function App() {
   useEngine();
   useEffect(() => { initDvr(); initRecRules(); }, []);
+  useEffect(() => startDeadChecker(), []);
   const { route } = useRoute();
   useRemoteCommands(openWatch, route === 'watch');
   const hydrated = useApp((s) => s.hydrated);

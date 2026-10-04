@@ -27,6 +27,10 @@ export interface ChannelPrefs extends OrgPrefs {
   /** Guide: sport filter ('' = everything, 'any' = all sports, or a sport key) and row order. */
   guideSport: string;
   guideSort: 'live' | 'lineup' | 'name';
+  /** Background check of stream links; channels whose every link is dead leave the lineup and guide. */
+  hideDead: boolean;
+  /** Logical channel ids the user keeps even when the checker finds them dead. */
+  keepDead: string[];
 }
 
 export const DEFAULT_CHANNEL_PREFS: ChannelPrefs = {
@@ -43,6 +47,8 @@ export const DEFAULT_CHANNEL_PREFS: ChannelPrefs = {
   railFolds: {},
   guideSport: '',
   guideSort: 'live',
+  hideDead: false,
+  keepDead: [],
 };
 
 export const useChannelPrefs = createPersisted<ChannelPrefs>({
@@ -66,6 +72,11 @@ export function toggleGroupHidden(key: string, hide?: boolean) {
     const on = hide ?? !s.hiddenGroups.includes(key);
     return { hiddenGroups: on ? (s.hiddenGroups.includes(key) ? s.hiddenGroups : [...s.hiddenGroups, key]) : s.hiddenGroups.filter((k) => k !== key) };
   });
+}
+
+/** "Keep anyway": never hide this channel as dead (or undo that). */
+export function setKeepDead(id: string, keep: boolean) {
+  setChannelPrefs((s) => ({ keepDead: keep ? (s.keepDead.includes(id) ? s.keepDead : [...s.keepDead, id]) : s.keepDead.filter((x) => x !== id) }));
 }
 
 export function setVariantChoice(channelId: string, variantId: string | undefined) {

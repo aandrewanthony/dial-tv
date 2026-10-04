@@ -6,6 +6,7 @@ import { setVariantChoice, toggleGroupHidden } from '../../store/channelPrefs';
 import { activeVariant, type OrgChannel } from '../../lib/channelOrg';
 import type { Channel } from '../../types';
 import { isFavorite, isOrg, toggleFavorite } from './useOrganized';
+import { DeadMenuItems } from './DeadChannels';
 
 /** Small floating menu at a screen point; closes on outside click, Escape or scroll. */
 export function Popover({ x, y, onClose, children, label }: { x: number; y: number; onClose: () => void; children: ReactNode; label: string }) {
@@ -70,6 +71,7 @@ export function ChannelMenu({ c, x, y, onClose }: { c: Channel; x: number; y: nu
           <div className="chMenuSep" />
           <button role="menuitem" onClick={() => { useApp.getState().update((st) => ({ hidden: [...st.hidden, c.id] })); onClose(); }}><EyeOff /> Hide channel</button>
           <button role="menuitem" onClick={() => { toggleGroupHidden(org.groupKey, true); onClose(); }}><Layers /> Hide group “{org.group}”</button>
+          <DeadMenuItems c={org} onClose={onClose} />
         </>
       )}
     </Popover>

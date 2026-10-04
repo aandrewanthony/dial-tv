@@ -1,3 +1,4 @@
+import { useHealthDeps } from './channels/useOrganized';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, Search, Star, Trophy, Tv } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
@@ -22,7 +23,8 @@ export function SearchPalette() {
     overrides: s.networkOverrides, favTeams: s.favTeams, programs: s.programs,
   })));
   const { tune, update } = useApp.getState();
-  const ordered = useMemo(() => orderedChannels({ channels, channelOrder, hidden }), [channels, channelOrder, hidden]);
+  const healthDeps = useHealthDeps();
+  const ordered = useMemo(() => orderedChannels({ channels, channelOrder, hidden }), [channels, channelOrder, hidden, ...healthDeps]); // eslint-disable-line react-hooks/exhaustive-deps
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);

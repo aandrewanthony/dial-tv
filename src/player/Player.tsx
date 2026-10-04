@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import type Hls from 'hls.js';
 import {
   AlertTriangle, Activity, Captions, Cpu, Expand, Gauge, Languages, Loader2, Maximize, Minimize, Pause, Play,
@@ -12,6 +12,7 @@ import { isHttpUrl, redactUrl, splitUserinfo } from '../lib/url';
 import { decoderOptions, gateOptions, hlsConfig, hlsGateOptions, levelLimits, machineInfo, mpegtsConfig, type GateOptions } from './tuning';
 import { bufferedAhead, bufferedEnd, createGate, type Gate } from './gate';
 import VodControls from './VodControls';
+import { holdPlayback, reportStreamOk } from '../lib/deadChecker';
 
 export interface PlayerHandle {
   togglePlay(): void;
@@ -177,6 +178,10 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
 
   useEffect(() => setMuted(!!mutedProp), [mutedProp]);
 
+  // The dead-channel checker never runs while a player is up (layout effect: before the attach
+  // effect below opens a connection, so a check in flight is closed first).
+  useLayoutEffect(() => holdPlayback(), []);
+
   // Attach the right engine for the current URL. At most one provider connection is open at a
   // time: the first-bytes sniff closes before the player connects, and codecs are only probed
   // (by ffmpeg) after a direct failure or a silent stall, never alongside playback.
@@ -272,6 +277,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     };
     let infoAsked = false;
     const onPlaying = () => {
+      if (!everPlayed && !vod) reportStreamOk(url); // a live link that plays isn't dead
       everPlayed = true;
       reconnecting = false;
       if (mode === 'decoder' && !infoAsked) {

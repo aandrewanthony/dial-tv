@@ -1,3 +1,4 @@
+import { useHealthDeps } from '../components/channels/useOrganized';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { CalendarPlus, Check, Clock, Heart, Loader2, Play, RefreshCw, Repeat, Search, Trophy, X } from 'lucide-react';
@@ -87,7 +88,8 @@ export default function GuidePage() {
   const personalDefs = useTv((s) => s.personal);
   const durations = useTv((s) => s.durations);
   const personalChannels = usePersonalChannels();
-  const live = useMemo(() => orderedChannels({ channels: allChannels, channelOrder, hidden }), [allChannels, channelOrder, hidden]);
+  const healthDeps = useHealthDeps();
+  const live = useMemo(() => orderedChannels({ channels: allChannels, channelOrder, hidden }), [allChannels, channelOrder, hidden, ...healthDeps]); // eslint-disable-line react-hooks/exhaustive-deps
   const groups = useMemo(() => channelGroups({ channels: allChannels, channelOrder, hidden }).filter((g) => !g.hidden), [allChannels, channelOrder, hidden]);
   const [day, setDay] = useState(() => startOfDay(paramTime(param) ?? Date.now()));
   // One-shot scroll target (route param or "Now"); consumed by the layout effect below.
