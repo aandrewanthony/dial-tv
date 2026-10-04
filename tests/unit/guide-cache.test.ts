@@ -4,7 +4,7 @@ import { decodeGuide, GuideCollector, guideWindow, rowFields, STRIDE } from '../
 import { runGuideJob } from '../../src/workers/guideJob';
 import { readGuideCache } from '../../src/workers/guideDb';
 import { defaultPersisted, nowPlaying, programsByChannel, programsInRange, upNext, useApp } from '../../src/store/app';
-import { guideDebug, guideStatusText, initGuide, loadGuide, maybeAutoRefresh, useGuide, useGuidePrefs } from '../../src/store/guide';
+import { guideDebug, guideStatusText, initGuide, loadGuide, maybeAutoRefresh, resetAutoRefresh, useGuide, useGuidePrefs } from '../../src/store/guide';
 import { programAt, programIndex } from '../../src/components/ui';
 import type { Channel } from '../../src/types';
 
@@ -102,13 +102,11 @@ describe('guide store', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('loads only on request, stores programmes once, serves every playlist channel id, restarts from cache', async () => {
-    await initGuide();
-    expect(fetches).toEqual([]); // nothing downloaded at startup (Manual policy)
-    expect(useGuide.getState().loaded).toBe(false);
-    expect(guideStatusText(useGuide.getState())).toBe('Guide not loaded');
-
-    expect(await loadGuide()).toBe(true);
+  it('loads by itself online, stores programmes once, serves every playlist channel id, restarts from cache', async () => {
+    resetAutoRefresh();
+    expect(guideStatusText(useGuide.getState())).toBe('Getting the guide…');
+    await initGuide(); // no saved guide: downloads in the background right away
+    for (let i = 0; i < 100 && !useGuide.getState().loaded; i++) await new Promise((r) => setTimeout(r, 20));
     expect(fetches).toEqual(['https://g/epg.xml.gz']);
     const s = useApp.getState();
     // 4 programmes for 3 matched playlist channels: stored once, not copied per channel.
@@ -156,25 +154,23 @@ describe('guide store', () => {
     expect(useApp.getState().programs.length).toBe(4);
   });
 
-  it('refresh policy: Manual never downloads; "Once a day" downloads once when the cache is older than a day', async () => {
+  it('refresh policy: "Once a day" downloads once when the cache is older than a day, never more than every 15 min', async () => {
     await initGuide();
     await loadGuide();
-    expect(fetches).toHaveLength(1);
-    useGuide.setState({ loadedAt: Date.now() - 25 * H });
-    maybeAutoRefresh(); // Manual (default)
-    expect(fetches).toHaveLength(1);
+    const n = fetches.length;
     useGuidePrefs.setState({ refresh: 'daily' });
-    useGuide.setState({ loadedAt: Date.now() - 2 * H });
+    resetAutoRefresh();
+    useGuide.setState({ loadedAt: Date.now() - 2 * H, until: Date.now() + 48 * H });
     maybeAutoRefresh(); // fresh enough
-    expect(fetches).toHaveLength(1);
+    expect(fetches).toHaveLength(n);
     useGuide.setState({ loadedAt: Date.now() - 25 * H });
     maybeAutoRefresh();
-    maybeAutoRefresh(); // coalesced / at most once per period
+    maybeAutoRefresh(); // coalesced
     await new Promise((r) => setTimeout(r, 50));
-    expect(fetches).toHaveLength(2);
-    useGuide.setState({ loadedAt: Date.now() - 25 * H });
-    maybeAutoRefresh(); // already tried this period
-    expect(fetches).toHaveLength(2);
-    useGuidePrefs.setState({ refresh: 'manual' });
+    expect(fetches).toHaveLength(n + 1);
+    useGuide.setState({ loadedAt: Date.now() - 25 * H, until: Date.now() + 48 * H });
+    maybeAutoRefresh(); // tried less than 15 min ago
+    expect(fetches).toHaveLength(n + 1);
+    useGuidePrefs.setState({ refresh: '12h' });
   });
 });

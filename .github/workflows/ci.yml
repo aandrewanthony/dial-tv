@@ -1,9 +1,7 @@
 name: CI
+# Manual only (Actions → CI → Run workflow): pushes and releases don't run the test suite.
 on:
-  push:
-    branches: [main]
-    paths-ignore: ['**/*.md', 'tests/streamlab/media/**']
-  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}

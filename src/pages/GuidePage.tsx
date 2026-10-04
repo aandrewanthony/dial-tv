@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { CalendarPlus, Check, Clock, Download, Heart, Loader2, Play, RefreshCw, Repeat, Search, Trophy, X } from 'lucide-react';
+import { CalendarPlus, Check, Clock, Heart, Loader2, Play, RefreshCw, Repeat, Search, Trophy, X } from 'lucide-react';
 import { channelGroups, orderedChannels, programsByChannel, useApp } from '../store/app';
 import { Drawer, fmtDay, fmtTime } from '../components/ui';
 import { entryFromProgram, HOUR, MIN, startOfDay } from '../lib/scheduler';
@@ -61,14 +61,10 @@ export function GuideStatus({ compact = false }: { compact?: boolean }) {
         <>
           <div className="guideStatusText">
             <span data-guide-status>{guideStatusText(g)}</span>
-            {g.loaded && g.needsReload > 0 && <small className="warn"> · {g.needsReload} newly mapped channel{g.needsReload > 1 ? 's' : ''} need a refresh</small>}
             {g.error && <small className="err">{g.error}</small>}
           </div>
-          {hasSource && (
-            <button className={g.loaded ? 'ghost' : 'primary'} onClick={() => void loadGuide()}>
-              {g.loaded ? <><RefreshCw /> Refresh guide</> : <><Download /> Load guide</>}
-            </button>
-          )}
+          {/* The guide loads and refreshes itself; a failed download can be retried right away. */}
+          {hasSource && g.error && <button className="ghost" onClick={() => void loadGuide()}><RefreshCw /> Try again</button>}
         </>
       )}
     </div>
@@ -231,19 +227,10 @@ export default function GuidePage() {
         {hasSource && <GuideStatus compact />}
       </div>
 
-      {guide.ready && !guide.loaded && !guide.loading && (live.length > 0 || hasSource) && (
+      {guide.ready && !guide.loaded && !guide.loading && live.length > 0 && !hasSource && (
         <div className="guideCta">
-          {hasSource ? (
-            <>
-              <div><b>Your guide isn’t loaded yet</b><span>Listings download only when you ask, then load instantly from this device. Change automatic refresh in Settings → Sources.</span></div>
-              <button className="primary" onClick={() => void loadGuide()}><Download /> Load guide</button>
-            </>
-          ) : (
-            <>
-              <div><b>No guide source</b><span>Add your provider’s XMLTV (EPG) link in Settings to see what’s on.</span></div>
-              <button onClick={() => navigate('settings', 'sources')}>Open Settings</button>
-            </>
-          )}
+          <div><b>No guide source</b><span>Your playlist didn’t include a guide link. Add your provider’s XMLTV (EPG) link in Settings and it loads automatically.</span></div>
+          <button onClick={() => navigate('settings', 'sources')}>Open Settings</button>
         </div>
       )}
 

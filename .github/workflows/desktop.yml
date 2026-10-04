@@ -1,11 +1,11 @@
 name: Desktop apps
-# Builds the Mac (Apple Silicon + Intel) and Windows apps, then TESTS the packaged Mac apps on real
-# Macs of each kind with the stream lab: every broadcast format must play with picture AND sound.
+# Builds the Mac (Apple Silicon + Intel) and Windows apps. On a manual run it can also TEST the packaged
+# apps (Mac stream lab on real Macs, Windows install test) when those boxes are ticked.
 #
 # COST: private-repo minutes are billed; macOS minutes count 10x, Windows 2x.
 #   Run workflow (manual) = Mac build only by default (~15 Mac min ≈ 150 billed). Tick boxes to add tests.
-#   Tag push (v*)          = Mac build + Apple Silicon test + Windows (~25 Mac min + ~10 Win ≈ 270 billed).
-#   The Intel Mac test only runs when ticked on a manual run.
+#   Tag push (v*)          = Mac build + Windows build, no tests (~15 Mac min + ~6 Win ≈ 165 billed).
+#   Tests (Mac stream lab, Windows install test) only run when ticked on a manual run.
 # Don't trigger runs casually: verify on Windows locally first and batch fixes into one release.
 on:
   workflow_dispatch:
@@ -19,7 +19,11 @@ on:
         type: boolean
         default: false
       windows:
-        description: Build + install-test Windows (+~10 Windows min ≈ 20 billed)
+        description: Build Windows (+~6 Windows min ≈ 12 billed)
+        type: boolean
+        default: false
+      windows_test:
+        description: Also run unit tests + the Windows install test (+~4 Windows min ≈ 8 billed)
         type: boolean
         default: false
   push:
@@ -45,7 +49,7 @@ jobs:
       - id: m
         run: |
           items=()
-          if [ "${{ startsWith(github.ref, 'refs/tags/') || inputs.mac_test_arm == true }}" = "true" ]; then items+=('{"runner":"macos-latest","zip":"arm64"}'); fi
+          if [ "${{ inputs.mac_test_arm == true }}" = "true" ]; then items+=('{"runner":"macos-latest","zip":"arm64"}'); fi
           if [ "${{ inputs.mac_test_intel == true }}" = "true" ]; then items+=('{"runner":"macos-15-intel","zip":"x64"}'); fi
           echo "matrix=[$(IFS=,; echo "${items[*]}")]" >> "$GITHUB_OUTPUT"
           if [ ${#items[@]} -gt 0 ]; then echo "any=true" >> "$GITHUB_OUTPUT"; else echo "any=false" >> "$GITHUB_OUTPUT"; fi
@@ -143,6 +147,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm test
+        if: inputs.windows_test == true
       - run: npm run dist:win
       - name: Verify Windows build (exe = stock Electron for Smart App Control, ffmpeg bundled, app launches)
         shell: pwsh
@@ -158,6 +163,7 @@ jobs:
           if ($p.HasExited) { Write-Error "app exited early"; exit 1 }
           Stop-Process -Id $p.Id -Force
       - name: Self-installer (zip with Mark of the Web, install, shortcuts, launch, update, uninstall)
+        if: inputs.windows_test == true
         shell: pwsh
         run: ./tests/install/win-install-test.ps1
       - uses: actions/upload-artifact@v4

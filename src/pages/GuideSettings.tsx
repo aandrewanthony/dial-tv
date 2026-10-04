@@ -14,7 +14,7 @@ import { fmtCount, guideMatch, loadGuide, useGuide, useGuidePrefs, type GuideRef
 import { MAX_DAYS } from '../workers/epgCore';
 import { GuideStatus } from './GuidePage';
 
-const REFRESH_OPTS: [GuideRefresh, string][] = [['manual', 'Manual'], ['12h', 'Every 12 hours'], ['daily', 'Once a day']];
+const REFRESH_OPTS: [GuideRefresh, string][] = [['6h', 'Every 6 hours'], ['12h', 'Every 12 hours'], ['daily', 'Once a day']];
 const PL_OPTS: [PlaylistRefresh, string][] = [['manual', 'Manual'], ['daily', 'Once a day']];
 
 const when = (t?: number) => (t ? new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
@@ -51,7 +51,7 @@ export function GuideDataPanel() {
       <h2>Guide data (XMLTV)</h2>
       <p className="muted">
         Listings from your provider’s EPG link (often added automatically from the playlist header) or a file. .xml and .xml.gz supported.
-        The guide downloads only when you load or refresh it (or on the schedule below), then opens instantly from this device.
+        The guide loads automatically online in the background, keeps itself up to date, and opens instantly from this device.
         {!isDesktop() && ' In the browser, the guide host must allow cross-origin requests — the desktop app has no such limit.'}
       </p>
       <GuideStatus />
@@ -80,7 +80,7 @@ export function GuideDataPanel() {
 
       <div className="guidePrefs">
         <div className="setting">
-          <div><b>Refresh guide</b><span>Manual: only when you press Refresh guide. Automatic refreshes run once in the background when the saved guide is older than this.</span></div>
+          <div><b>Keep the guide fresh</b><span>The guide re-downloads in the background when the saved copy is older than this.</span></div>
           <div className="chips">
             {REFRESH_OPTS.map(([v, l]) => <button key={v} className={prefs.refresh === v ? 'on' : ''} onClick={() => useGuidePrefs.setState({ refresh: v })}>{l}</button>)}
           </div>
@@ -176,7 +176,7 @@ export function GuideMappingPanel() {
             <button onClick={acceptAll} title="Map every unmatched channel whose best guess is at least 80% confident"><Sparkles /> Accept confident suggestions</button>
           </div>
           {g.needsReload > 0 && (
-            <p className="banner">{g.needsReload} mapped channel{g.needsReload > 1 ? 's have' : ' has'} no downloaded listings yet. <button disabled={g.loading} onClick={() => void loadGuide()}><RefreshCw /> Refresh guide</button></p>
+            <p className="banner">{g.needsReload} mapped channel{g.needsReload > 1 ? 's have' : ' has'} no listings yet. {g.loading ? 'Loading them now…' : 'They load with the next automatic update.'}</p>
           )}
           {shown.map((c) => {
             const r = resolved.get(c.id);

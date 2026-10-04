@@ -8,7 +8,7 @@ import { entryFromProgram } from '../../lib/scheduler';
 import { Modal, fmtDay, fmtTime, useNow } from '../ui';
 import { programsFor, TvMark } from './personal';
 import { leftLabel } from './InfoBanner';
-import { guideProgressText, loadGuide, useGuide } from '../../store/guide';
+import { guideProgressText, useGuide } from '../../store/guide';
 import { RecordButton } from './RecordButton';
 
 const MIN = 60_000;
@@ -226,5 +226,5 @@ function GuideEmptyLine() {
   const hasSource = useApp((s) => s.epgSources.some((e) => e.enabled));
   if (loaded || !hasSource) return null;
   if (loading) return <p className="tvGuideEmpty" role="status">Loading guide… {guideProgressText(progress).text}</p>;
-  return <p className="tvGuideEmpty" role="status">Guide not loaded — <button className="link" onClick={() => void loadGuide()}>Load</button></p>;
+  return <p className="tvGuideEmpty" role="status">Getting the guide…</p>;
 }

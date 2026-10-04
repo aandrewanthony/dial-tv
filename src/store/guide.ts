@@ -2,9 +2,10 @@
  * Guide (EPG) state: the cached guide, manual/automatic refresh, and the mapping from playlist
  * channels to guide channels.
  *
- * - Nothing is downloaded at startup: the guide comes from its IndexedDB cache (workers/guideDb.ts).
- *   Downloads happen when the user presses "Load guide" / "Refresh guide", or — only if the user
- *   picked "Once a day" / "Every 12 hours" — once in the background when the cache is older than that.
+ * - The guide is online and automatic: at startup it opens from its IndexedDB cache (workers/guideDb.ts)
+ *   and downloads in the background when there is no cache, when it's older than the refresh period
+ *   (6 h / 12 h / daily), when a guide source is added (e.g. found in a playlist header or an Xtream
+ *   login), and when newly mapped channels have no listings yet.
  * - Downloading, gunzip, parsing, matching and windowing run in a Web Worker (workers/epg.worker.ts).
  * - Programmes are stored once per guide channel. Playlist channels resolve to a guide channel
  *   (tvg-id → name → normalized name → manual mapping) and share its listings: `useApp.programs`
@@ -19,13 +20,13 @@ import { decodeGuide, DEFAULT_DAYS, EpgMatcher, rowFields, type DecodedGuide, ty
 import { clearGuideCache, readGuideCache, readGuidePrefs, writeGuidePrefs } from '../workers/guideDb';
 import { runGuideJob, type GuideJobProgress, type GuideJobRequest, type GuideJobSource } from '../workers/guideJob';
 
-export type GuideRefresh = 'manual' | 'daily' | '12h';
+export type GuideRefresh = '6h' | '12h' | 'daily';
 export type PlaylistRefresh = 'manual' | 'daily';
 
-export const REFRESH_MS: Record<GuideRefresh, number> = { manual: Infinity, daily: 24 * 3600_000, '12h': 12 * 3600_000 };
+export const REFRESH_MS: Record<GuideRefresh, number> = { '6h': 6 * 3600_000, '12h': 12 * 3600_000, daily: 24 * 3600_000 };
 
 export interface GuidePrefs {
-  /** Guide download policy. Manual = only when the user asks. */
+  /** How often the guide re-downloads in the background. */
   refresh: GuideRefresh;
   /** Days of listings to keep (1–7). */
   days: number;
@@ -33,14 +34,19 @@ export interface GuidePrefs {
   playlistRefresh: PlaylistRefresh;
 }
 
-const DEFAULT_PREFS: GuidePrefs = { refresh: 'manual', days: DEFAULT_DAYS, playlistRefresh: 'manual' };
+const DEFAULT_PREFS: GuidePrefs = { refresh: '12h', days: DEFAULT_DAYS, playlistRefresh: 'manual' };
 
 /** Guide preferences, saved in the guide's own database (workers/guideDb.ts). */
 export const useGuidePrefs = Object.assign(create<GuidePrefs>(() => ({ ...DEFAULT_PREFS })), { ready: Promise.resolve() });
 useGuidePrefs.ready = (async () => {
   try {
     const stored = await readGuidePrefs<Partial<GuidePrefs>>();
-    if (stored && typeof stored === 'object') useGuidePrefs.setState({ ...DEFAULT_PREFS, ...stored });
+    if (stored && typeof stored === 'object') {
+      const merged = { ...DEFAULT_PREFS, ...stored };
+      // The old "Manual" policy is gone: the guide is always online.
+      if (!(merged.refresh in REFRESH_MS)) merged.refresh = DEFAULT_PREFS.refresh;
+      useGuidePrefs.setState(merged);
+    }
   } catch {
     return; // unreadable: run on defaults and never overwrite what's stored
   }
@@ -206,6 +212,7 @@ export async function remap(): Promise<void> {
   registerProgramIndex(programs, index);
   useApp.setState({ programs, unmatchedEpg });
   useGuide.setState((s) => ({ matched, liveChannels: shownTotal, needsReload, rev: s.rev + 1 }));
+  if (needsReload) setTimeout(maybeAutoRefresh, 2000);
 }
 
 let remapTimer: ReturnType<typeof setTimeout> | null = null;
@@ -257,6 +264,10 @@ export async function initGuide(): Promise<void> {
         return;
       }
       scheduleRemap();
+      // A new guide source (typed in, found in a playlist header, an Xtream login): fetch it now.
+      if (enabledKey(s) !== enabledKey(prev) && s.epgSources.some((e) => e.enabled && !useGuide.getState().sources.some((x) => x.id === e.id))) {
+        setTimeout(() => { if (!useGuide.getState().loading) void loadGuide({ background: true }); }, 1500);
+      }
     }
   });
   let cache: GuideCache | undefined;
@@ -271,15 +282,17 @@ export async function initGuide(): Promise<void> {
   maybeAutoRefresh();
   if (refreshTimer) clearInterval(refreshTimer);
   // Re-check the policy now and then while the app stays open (it only downloads when stale).
-  refreshTimer = setInterval(maybeAutoRefresh, 30 * 60_000);
+  refreshTimer = setInterval(maybeAutoRefresh, 10 * 60_000);
 }
 
 let lastAutoGuide = 0;
 let lastAutoPlaylists = 0;
+/** Tests: forget when the last automatic download ran. */
+export const resetAutoRefresh = () => { lastAutoGuide = 0; lastAutoPlaylists = 0; };
 
 /**
- * Downloads only when the user chose an automatic policy and the saved copy is older than it —
- * and at most once per policy period, even when that attempt failed (never hammers a provider).
+ * Background guide download: when there's no saved guide, or it's older than the refresh period, or
+ * newly mapped channels have no listings. At most once per 15 min after a failure (never hammers a provider).
  */
 export function maybeAutoRefresh() {
   const prefs = useGuidePrefs.getState();
@@ -295,9 +308,14 @@ export function maybeAutoRefresh() {
       void app.loadSources();
     }
   }
-  if (prefs.refresh === 'manual' || g.loading || !enabledEpgSources().length) return;
+  if (g.loading || !enabledEpgSources().length) return;
   const age = g.loadedAt ? Date.now() - g.loadedAt : Infinity;
-  if (age > REFRESH_MS[prefs.refresh] && Date.now() - lastAutoGuide > REFRESH_MS[prefs.refresh]) {
+  const period = REFRESH_MS[prefs.refresh] ?? REFRESH_MS['12h'];
+  // Also when listings are about to run out, or newly mapped channels have none yet.
+  const stale = age > period || (g.loaded && g.needsReload > 0) || (!!g.until && g.until - Date.now() < 6 * 3600_000 && age > 3600_000);
+  // After a failed attempt, wait 15 min; after a good one, the next reason (e.g. a new mapping) may load right away.
+  const lastOk = !!g.loadedAt && g.loadedAt >= lastAutoGuide && !g.error;
+  if (stale && (lastOk || Date.now() - lastAutoGuide > 15 * 60_000)) {
     lastAutoGuide = Date.now();
     void loadGuide({ background: true });
   }
@@ -454,11 +472,10 @@ function fmtWhen(t: number) {
 
 /** "Guide loaded 2:14 PM · 1,240 of 1,380 channels matched · 3 days" */
 export function guideStatusText(s: GuideState): string {
-  if (!s.loaded) return 'Guide not loaded';
+  if (!s.loaded) return 'Getting the guide…';
   const parts = [`Guide loaded ${fmtWhen(s.loadedAt!)}`, `${fmtCount(s.matched)} of ${fmtCount(s.liveChannels)} channels matched`];
   if (s.days) parts.push(`${s.days} day${s.days > 1 ? 's' : ''}`);
-  if (s.until && Date.now() > s.until) parts.push('listings ended — refresh');
-  else if (s.until && s.until - Date.now() < 12 * 3600_000) parts.push('listings end soon — refresh');
+  if (s.until && s.until - Date.now() < 6 * 3600_000) parts.push('updating');
   return parts.join(' · ');
 }
 
