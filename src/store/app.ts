@@ -78,6 +78,8 @@ export interface FantasyConfig {
   leagueName?: string;
   /** ESPN: league season (year). */
   season?: string;
+  /** ESPN: private league, read with the user's espn_s2 / SWID (kept in the OS keychain, desktop only). */
+  espnPrivate?: boolean;
 }
 
 export interface PersistedState {

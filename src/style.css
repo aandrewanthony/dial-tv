@@ -1148,3 +1148,12 @@ button.recPlay svg { width: 14px; height: 14px; margin-left: 2px; }
 .wpNow { display: flex; flex-direction: column; align-items: flex-end; min-width: 50px; line-height: 1.1; }
 .wpNow b { font: 700 18px var(--mono); }
 .wpNow small { font-size: 11px; color: var(--muted); }
+
+/* Private ESPN fantasy leagues (cookie form) */
+.espnCookies { text-align: left; width: 100%; max-width: 560px; margin: 4px auto; display: flex; flex-direction: column; gap: 8px; }
+.espnCookies .sectionTitle { margin: 0; }
+.espnCookies .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.espnCookies code { font: 12px var(--mono); color: var(--text); }
+.espnCookies .col { display: flex; flex-direction: column; gap: 8px; }
+.espnCookies .ok { color: var(--good); display: inline-flex; gap: 4px; align-items: center; }
+.espnCookies p svg { width: 12px; height: 12px; vertical-align: -1px; }

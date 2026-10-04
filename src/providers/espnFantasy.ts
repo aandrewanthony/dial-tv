@@ -1,13 +1,57 @@
 import type { FantasyMatchup, FantasyPlayer, FantasySnapshot, FantasyTeam } from './types';
+import { hasSecret, secretsAreEncrypted, setSecret } from '../lib/secrets';
 
 /**
  * ESPN Fantasy Football (read-only). Public leagues work from the browser: lm-api-reads sends
- * `Access-Control-Allow-Origin: <origin>` + `Allow-Credentials: true`. Private leagues need the
- * espn_s2 / SWID cookies, which a page cannot attach (Cookie is a forbidden header and the app has
- * no ESPN session), so the UI asks for the league to be set to public. If the desktop shell ever
- * stores those cookies for .espn.com, adding `credentials: 'include'` to the fetch below would pick them up.
+ * `Access-Control-Allow-Origin: <origin>` + `Allow-Credentials: true`.
+ *
+ * Private leagues need the user's espn_s2 / SWID cookies. A page can't attach those (Cookie is a
+ * forbidden header), so they're desktop-only: the user pastes them once, they're saved encrypted with
+ * the OS keychain as write-only secrets, and the shell (electron/espnAuth.cjs + main.cjs) adds them to
+ * the app's own requests to lm-api-reads.fantasy.espn.com / fantasy.espn.com. The renderer never
+ * reads them back, and never asks for the ESPN password.
  */
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
+
+/** Secret names (must match electron/espnAuth.cjs). */
+export const ESPN_S2_SECRET = 'espn_s2';
+export const ESPN_SWID_SECRET = 'espn_swid';
+
+/** espn_s2 as pasted (maybe "espn_s2=…" or quoted) → bare value, or null. Same rules as the shell. */
+export function cleanEspnS2(raw: string): string | null {
+  const v = raw.trim().replace(/^espn_s2\s*=\s*/i, '').replace(/^"(.*)"$/, '$1').trim();
+  return /^[A-Za-z0-9%+/=._~-]{20,2048}$/.test(v) ? v : null;
+}
+
+/** SWID as pasted ({GUID}, GUID or "SWID=…") → "{GUID}" uppercase, or null. */
+export function cleanSwid(raw: string): string | null {
+  const v = raw.trim().replace(/^swid\s*=\s*/i, '').replace(/^"(.*)"$/, '$1').trim().replace(/^\{|\}$/g, '');
+  return /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/.test(v) ? `{${v.toUpperCase()}}` : null;
+}
+
+/** Private leagues need the desktop app (the shell attaches the cookies; a browser page can't). */
+export const espnPrivateSupported = () => secretsAreEncrypted();
+
+export async function hasEspnCookies(): Promise<boolean> {
+  if (!espnPrivateSupported()) return false;
+  const [a, b] = await Promise.all([hasSecret(ESPN_S2_SECRET), hasSecret(ESPN_SWID_SECRET)]);
+  return a && b;
+}
+
+/** Validate and save both cookies in the OS keychain. Returns an error message, or undefined when saved. */
+export async function saveEspnCookies(s2Raw: string, swidRaw: string): Promise<string | undefined> {
+  if (!espnPrivateSupported()) return 'Private ESPN leagues need the Dial TV desktop app.';
+  const s2 = cleanEspnS2(s2Raw);
+  const swid = cleanSwid(swidRaw);
+  if (!s2) return 'That doesn’t look like an espn_s2 value — copy the whole Value column (a long string of letters, numbers and % signs).';
+  if (!swid) return 'That doesn’t look like a SWID — it’s a code in braces like {1A2B3C4D-…}.';
+  const ok = (await setSecret(ESPN_S2_SECRET, s2)) && (await setSecret(ESPN_SWID_SECRET, swid));
+  return ok ? undefined : 'Couldn’t save the cookies to your keychain.';
+}
+
+export async function clearEspnCookies(): Promise<void> {
+  await Promise.all([setSecret(ESPN_S2_SECRET, null), setSecret(ESPN_SWID_SECRET, null)]);
+}
 
 /** ESPN proTeamId → ESPN NFL abbreviation (same as the scoreboard uses). */
 export const PRO_TEAMS: Record<number, string> = {
@@ -27,10 +71,33 @@ const SLOTS: Record<number, [string, number]> = {
 const BENCH = 20;
 const IR = 21;
 
+/** 'private': the league needs cookies we don't have. 'auth': the saved cookies were rejected (expired / not in the league). */
+export type EspnErrorCode = 'private' | 'auth' | 'notfound' | 'other';
+
 export class EspnFantasyError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(message: string, readonly status: number, readonly code: EspnErrorCode = 'other') {
     super(message);
   }
+}
+
+export interface EspnFetchOptions {
+  signal?: AbortSignal;
+  /** The league is connected as private (the desktop shell attaches the saved cookies). */
+  private?: boolean;
+  /** Test seam (defaults to the global fetch). */
+  fetch?: typeof fetch;
+}
+
+const MAKE_PUBLIC = 'the commissioner can turn on “Make League Viewable to Public” (League → Settings → Basic Settings)';
+const EXPIRED =
+  'ESPN didn’t accept your saved espn_s2 / SWID cookies — they’ve probably expired (signing out of espn.com resets them), or that ESPN account isn’t in this league. Sign in on espn.com, copy fresh values and save them again.';
+
+function privateError(status: number, isPrivate: boolean): EspnFantasyError {
+  if (isPrivate) return new EspnFantasyError(EXPIRED, status, 'auth');
+  const how = espnPrivateSupported()
+    ? `Choose “Private league” and add your ESPN cookies, or ${MAKE_PUBLIC}.`
+    : `Private leagues need the Dial TV desktop app — or ${MAKE_PUBLIC}.`;
+  return new EspnFantasyError(`This ESPN league is private. ${how}`, status, 'private');
 }
 
 /** NFL fantasy season for a date: the season that started in the fall (Jan–Feb belong to the previous year). */
@@ -40,15 +107,30 @@ export function leagueUrl(leagueId: string, season: string) {
   return `${BASE}/seasons/${encodeURIComponent(season)}/segments/0/leagues/${encodeURIComponent(leagueId)}?view=mMatchupScore&view=mTeam&view=mRoster&view=mSettings`;
 }
 
-export async function fetchEspnLeague(leagueId: string, season: string, signal?: AbortSignal): Promise<unknown> {
+export async function fetchEspnLeague(leagueId: string, season: string, opts: EspnFetchOptions = {}): Promise<unknown> {
   if (!/^\d{1,12}$/.test(leagueId.trim())) throw new EspnFantasyError('ESPN league ids are numbers — copy it from the leagueId= part of your league URL.', 400);
-  const res = await fetch(leagueUrl(leagueId.trim(), season), { signal });
-  if (res.status === 401 || res.status === 403) {
-    throw new EspnFantasyError('This ESPN league is private. Ask the commissioner to make it viewable to the public (League → Settings → Basic Settings → "Make League Viewable to Public"), then try again.', res.status);
-  }
-  if (res.status === 404) throw new EspnFantasyError(`No ESPN league ${leagueId} for the ${season} season.`, 404);
+  const isPrivate = !!opts.private;
+  if (isPrivate && !espnPrivateSupported()) throw new EspnFantasyError('This league is connected as a private ESPN league, which needs the Dial TV desktop app.', 0, 'private');
+  const res = await (opts.fetch ?? fetch)(leagueUrl(leagueId.trim(), season), { signal: opts.signal });
+  if (res.status === 401 || res.status === 403) throw privateError(res.status, isPrivate);
+  if (res.status === 404) throw new EspnFantasyError(`No ESPN league ${leagueId} for the ${season} season.`, 404, 'notfound');
   if (!res.ok) throw new EspnFantasyError(`ESPN Fantasy error ${res.status}`, res.status);
-  return res.json();
+  // Bad cookies can also come back as an HTML sign-in page or an error body instead of a 401.
+  let json: unknown;
+  try {
+    json = JSON.parse(await res.text());
+  } catch {
+    if (isPrivate) throw new EspnFantasyError(EXPIRED, res.status, 'auth');
+    throw new EspnFantasyError('ESPN Fantasy sent back something that isn’t league data. Try again in a minute.', res.status);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const j = json as any;
+  if (!j || typeof j !== 'object' || Array.isArray(j) || (!Array.isArray(j.teams) && (j.messages || j.details))) {
+    const authish = JSON.stringify(j?.details ?? j?.messages ?? '').match(/AUTH|not authorized|private/i);
+    if (authish) throw privateError(401, isPrivate);
+    throw new EspnFantasyError('ESPN Fantasy sent back something that isn’t league data. Try again in a minute.', res.status);
+  }
+  return j;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -137,6 +219,6 @@ export function parseEspnLeague(json: any, myTeamId?: string): FantasySnapshot {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export async function espnSnapshot(leagueId: string, season: string, myTeamId?: string, signal?: AbortSignal): Promise<FantasySnapshot> {
-  return parseEspnLeague(await fetchEspnLeague(leagueId, season, signal), myTeamId);
+export async function espnSnapshot(leagueId: string, season: string, myTeamId?: string, opts: EspnFetchOptions = {}): Promise<FantasySnapshot> {
+  return parseEspnLeague(await fetchEspnLeague(leagueId, season, opts), myTeamId);
 }

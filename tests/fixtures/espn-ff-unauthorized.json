@@ -1,0 +1,12 @@
+{
+  "messages": ["You are not authorized to view this League."],
+  "details": [
+    {
+      "message": "You are not authorized to view this League.",
+      "shortMessage": "You are not authorized to view this League.",
+      "resolved": false,
+      "type": "AUTH_LEAGUE_NOT_VISIBLE",
+      "metaData": null
+    }
+  ]
+}

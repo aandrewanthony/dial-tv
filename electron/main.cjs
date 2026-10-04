@@ -7,6 +7,7 @@ const { pathToFileURL } = require('node:url');
 const decoder = require('./decoder.cjs');
 const installer = require('./installer.cjs');
 const dvr = require('./dvr.cjs');
+const espnAuth = require('./espnAuth.cjs');
 const { cleanHeader, VLC_UA } = decoder;
 
 const isDev = !app.isPackaged && process.env.DIAL_DEV_URL;
@@ -75,6 +76,19 @@ function allowCrossOrigin() {
   ses.webRequest.onBeforeSendHeaders((details, cb) => {
     const h = details.requestHeaders;
     if (!fromApp(details) || !STREAM_TYPES.has(details.resourceType)) return cb({ requestHeaders: h });
+    // Private ESPN fantasy leagues: the user's espn_s2 / SWID, only on Dial TV's fetches to ESPN Fantasy hosts.
+    if (details.resourceType === 'xhr' && espnAuth.isEspnFantasyUrl(details.url)) {
+      const cookie = espnCookie();
+      if (cookie) setHeader(h, 'Cookie', espnAuth.mergeCookie(getHeader(h, 'Cookie'), cookie));
+      return cb({ requestHeaders: h });
+    }
+    // Never let them follow a redirect to another host.
+    const cookieNow = getHeader(h, 'Cookie');
+    if (cookieNow && espnCookieCache && cookieNow.includes(espnCookieCache)) {
+      const rest = espnAuth.stripEspnCookies(cookieNow);
+      if (rest) setHeader(h, 'Cookie', rest);
+      else for (const k of Object.keys(h)) if (/^cookie$/i.test(k)) delete h[k];
+    }
     const origin = originOf(details.url);
     const registered = byUrl.get(details.url) ?? (origin ? byOrigin.get(origin) : undefined);
     if (registered) {
@@ -181,21 +195,40 @@ ipcMain.handle('dial:version', () => app.getVersion());
 const secretsFile = () => path.join(app.getPath('userData'), 'secrets.json');
 const readSecrets = () => { try { return JSON.parse(fs.readFileSync(secretsFile(), 'utf8')); } catch { return {}; } };
 const validName = (n) => typeof n === 'string' && /^[a-z0-9_-]{1,40}$/.test(n);
-ipcMain.handle('dial:secret-get', (e, name) => {
-  if (!appContents.has(e.sender.id) || !validName(name)) return null;
+// Secrets only the shell uses: the renderer may save, remove or check them, never read them back.
+const WRITE_ONLY = new Set([espnAuth.ESPN_S2, espnAuth.ESPN_SWID]);
+const decryptSecret = (name) => {
   const enc = readSecrets()[name];
   if (!enc) return null;
   try { return safeStorage.decryptString(Buffer.from(enc, 'base64')); } catch { return null; }
+};
+ipcMain.handle('dial:secret-get', (e, name) => {
+  if (!appContents.has(e.sender.id) || !validName(name) || WRITE_ONLY.has(name)) return null;
+  return decryptSecret(name);
 });
+ipcMain.handle('dial:secret-has', (e, name) => {
+  if (!appContents.has(e.sender.id) || !validName(name)) return false;
+  return !!decryptSecret(name);
+});
+
+/** Cookie header for private ESPN leagues (decrypted once; cleared when either cookie changes). */
+let espnCookieCache; // undefined = not read yet, null = not saved
+function espnCookie() {
+  if (espnCookieCache === undefined) espnCookieCache = espnAuth.espnCookieHeader(decryptSecret(espnAuth.ESPN_S2), decryptSecret(espnAuth.ESPN_SWID));
+  return espnCookieCache;
+}
 ipcMain.handle('dial:secret-set', (e, name, value) => {
   if (!appContents.has(e.sender.id) || !validName(name)) return false;
   const all = readSecrets();
   if (value == null || value === '') delete all[name];
   else {
     if (!safeStorage.isEncryptionAvailable() || typeof value !== 'string' || value.length > 4096) return false;
+    if (name === espnAuth.ESPN_S2 && !espnAuth.cleanEspnS2(value)) return false;
+    if (name === espnAuth.ESPN_SWID && !espnAuth.cleanSwid(value)) return false;
     all[name] = safeStorage.encryptString(value).toString('base64');
   }
   fs.writeFileSync(secretsFile(), JSON.stringify(all), { mode: 0o600 });
+  if (WRITE_ONLY.has(name)) espnCookieCache = undefined;
   return true;
 });
 
