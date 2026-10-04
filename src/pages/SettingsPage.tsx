@@ -10,9 +10,9 @@ import { kv } from '../store/db';
 import type { Channel } from '../types';
 import { ChannelMark, Toggle, usePinGuard } from '../components/ui';
 import { ChannelPicker } from '../components/ChannelPicker';
-import { AddPlaylist } from '../components/AddPlaylist';
+import { AddPlaylist, playlistDetail } from '../components/AddPlaylist';
+import { exportablePersisted, mergeImportedSecrets } from '../store/sourceSecrets';
 import { canonicalNetwork, matchNetwork } from '../lib/channelMatch';
-import { redactUrl, safeUrl } from '../lib/url';
 import { LEAGUES } from '../lib/sports';
 import { requestNotifyPermission } from '../lib/notify';
 import { useRoute, navigate } from '../app/router';
@@ -78,13 +78,13 @@ function Sources() {
           <h2>Playlists</h2>
           <button onClick={() => void useApp.getState().loadSources()} disabled={loading}>{loading ? <Loader2 className="spin" /> : <RefreshCw />} Reload all</button>
         </div>
-        <p className="muted">Your M3U/M3U8 playlists, by link or file. Everything stays on this device.{!isDesktop() && ' In the browser, the playlist host must allow cross-origin requests — the desktop app has no such limit.'}</p>
+        <p className="muted">Your M3U/M3U8 playlists (by link or file) and Xtream Codes logins. Everything stays on this device.{!isDesktop() && ' In the browser, the playlist host must allow cross-origin requests — the desktop app has no such limit.'}</p>
         {playlists.map((p) => (
           <div className="srcRow" key={p.id}>
             <Toggle on={p.enabled} label={`Enable playlist ${p.name}`} onChange={(v) => { update((st) => ({ playlists: st.playlists.map((x) => (x.id === p.id ? { ...x, enabled: v } : x)) })); reload(); }} />
             <div>
               <b>{p.name}</b>
-              <small>{p.kind === 'm3u-url' ? redactUrl(p.url!) : 'Local file'}{p.channelCount != null && ` · ${p.channelCount} channels`}</small>
+              <small>{playlistDetail(p)}{p.channelCount != null && ` · ${p.channelCount} channels`}</small>
               {p.error && <small className="err"><AlertTriangle /> {p.error}</small>}
             </div>
             <button className="icon" aria-label={`Remove playlist ${p.name}`} onClick={() => removePlaylist(p.id)}><Trash2 /></button>
@@ -396,8 +396,10 @@ function Appearance() {
 function Backup() {
   const version = useApp((s) => s.version);
   const [msg, setMsg] = useState<string>();
+  const [withLogins, setWithLogins] = useState(false);
   const exportBundle = () => {
-    const data = pickPersisted(useApp.getState());
+    // Playlist links, Xtream passwords and guide links are left out unless the user includes them.
+    const data = exportablePersisted(pickPersisted(useApp.getState()), withLogins);
     const blob = new Blob([JSON.stringify({ app: 'dial-tv', exportedAt: new Date().toISOString(), data }, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -409,7 +411,8 @@ function Backup() {
     try {
       const j = JSON.parse(await f.text());
       if (j?.app !== 'dial-tv' || !j.data) throw new Error('Not a Dial TV backup');
-      useApp.setState(migrate(j.data));
+      // Sources exported without their login keep the one this device already has (same source).
+      useApp.setState(mergeImportedSecrets(migrate(j.data), useApp.getState()));
       await useApp.getState().loadSources();
       setMsg('Backup restored.');
     } catch (e) {
@@ -419,7 +422,11 @@ function Backup() {
   return (
     <section className="panel">
       <h2>Backup &amp; transfer</h2>
-      <p className="muted">Export favorites, schedule, rules, bets, mappings and source list to a JSON file — use it to move settings between the web app and desktop. Playlist URLs may contain your provider login, so keep the file private. Imported local playlist files must be re-added.</p>
+      <p className="muted">Export favorites, schedule, rules, bets, mappings and source list to a JSON file — use it to move settings between the web app and desktop. Playlist links, Xtream Codes passwords and guide links are left out unless you include them below; without them, those sources must be added again after importing on another device. Imported local playlist files must be re-added.</p>
+      <label className="exportLogins">
+        <input type="checkbox" checked={withLogins} onChange={(e) => setWithLogins(e.target.checked)} />
+        <span><b>Include playlist links and logins</b><small>The file will contain your provider usernames and passwords in plain text. Keep it private.</small></span>
+      </label>
       <div className="row">
         <button className="primary" onClick={exportBundle}><Download /> Export settings</button>
         <label className="btnLike"><Upload /> Import settings<input type="file" accept=".json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importBundle(f); }} /></label>

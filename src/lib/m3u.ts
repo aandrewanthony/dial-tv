@@ -85,7 +85,7 @@ const VLC_OPTS: Record<string, string> = {
   'http-cookie': 'Cookie',
 };
 
-function markFor(name: string) {
+export function markFor(name: string) {
   const bare = name.replace(/^\s*(\[[^\]]+\]|[A-Z]{2,3}\s*[:|])\s*/i, '');
   const words = bare.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
   if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();

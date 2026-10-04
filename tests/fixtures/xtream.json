@@ -1,0 +1,43 @@
+{
+  "auth": {
+    "user_info": {
+      "username": "fan",
+      "password": "s3cret!",
+      "message": "",
+      "auth": 1,
+      "status": "Active",
+      "exp_date": "1893456000",
+      "is_trial": "0",
+      "active_cons": "1",
+      "created_at": "1700000000",
+      "max_connections": "2",
+      "allowed_output_formats": ["m3u8", "ts", "rtmp"]
+    },
+    "server_info": {
+      "url": "provider.test",
+      "port": "8080",
+      "https_port": "8443",
+      "server_protocol": "http",
+      "timezone": "America/New_York",
+      "timestamp_now": 1759600000
+    }
+  },
+  "get_live_categories": [
+    { "category_id": "1", "category_name": "US| SPORTS", "parent_id": 0 },
+    { "category_id": "2", "category_name": "US| NEWS", "parent_id": 0 }
+  ],
+  "get_live_streams": [
+    { "num": 2, "name": "US| ESPN FHD", "stream_type": "live", "stream_id": 1002, "stream_icon": "http://logos.test/espn.png", "epg_channel_id": "ESPN.us", "added": "1700000000", "category_id": "1", "tv_archive": 0 },
+    { "num": 1, "name": "US| FOX SPORTS 1", "stream_type": "live", "stream_id": "1001", "stream_icon": "", "epg_channel_id": "FS1.us", "category_id": "1" },
+    { "num": 3, "name": "US| CNN", "stream_type": "live", "stream_id": 1003, "stream_icon": "javascript:alert(1)", "epg_channel_id": null, "category_id": "2" },
+    { "num": 4, "name": "US| CNN", "stream_type": "live", "stream_id": 1004, "epg_channel_id": "", "category_id": "99" },
+    { "num": 5, "name": "Broken entry without id", "stream_type": "live" }
+  ],
+  "get_vod_categories": [
+    { "category_id": "10", "category_name": "VOD | Action" }
+  ],
+  "get_vod_streams": [
+    { "num": 1, "name": "Heat (1995)", "stream_type": "movie", "stream_id": 5001, "stream_icon": "http://logos.test/heat.jpg", "category_id": "10", "container_extension": "mkv" },
+    { "num": 2, "name": "Ronin", "stream_type": "movie", "stream_id": 5002, "category_id": "10", "container_extension": "mp4" }
+  ]
+}

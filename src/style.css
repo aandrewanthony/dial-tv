@@ -1078,3 +1078,14 @@ button.ghost.tiny { padding: 3px 8px; font-size: 10.5px; }
 .guidePage .gRowEmpty .gNoList { position: sticky; left: 202px; transform: none; top: auto; margin-left: 12px; }
 .guidePage .grid { contain: strict; }
 .guidePage .gRow { contain: layout style; }
+
+/* Add playlist: M3U / Xtream Codes tabs, Xtream login form; Backup: include-logins option */
+.addPlaylistTabs { margin-bottom: 10px; }
+.xtreamForm { display: flex; flex-direction: column; gap: 8px; }
+.xtreamForm select.field { flex: 0 1 170px; }
+.xtreamNote { display: flex; gap: 6px; align-items: flex-start; margin: 2px 0 0; }
+.xtreamNote svg { width: 13px; height: 13px; margin-top: 2px; }
+.exportLogins { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 12px; cursor: pointer; }
+.exportLogins input { margin-top: 3px; accent-color: var(--accent); }
+.exportLogins span { display: flex; flex-direction: column; gap: 2px; }
+.exportLogins small { color: var(--muted); font-size: 12px; }

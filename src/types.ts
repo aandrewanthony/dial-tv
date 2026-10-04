@@ -139,12 +139,45 @@ export interface ScheduleRule {
 export interface PlaylistSource {
   id: string;
   name: string;
-  kind: 'm3u-url' | 'm3u-file';
+  kind: 'm3u-url' | 'm3u-file' | 'xtream';
+  /** m3u-url: the playlist link (may embed your provider login; on desktop it is saved in the OS keychain). */
   url?: string;
+  /** xtream: Xtream Codes login (on desktop the password is saved in the OS keychain). */
+  xtream?: XtreamLogin;
+  /** xtream: account details from player_api.php user_info, refreshed on every load. */
+  account?: XtreamAccount;
+  /**
+   * Simultaneous streams the provider allows (Xtream user_info.max_connections), when known.
+   * Multiview / recording features should not open more streams than this.
+   */
+  maxConnections?: number;
   enabled: boolean;
   lastLoaded?: number;
   channelCount?: number;
   error?: string;
+  /** Storage only: the login/link is saved in the OS keychain (store/sourceSecrets.ts). In memory only while that login could not be read. */
+  keychain?: boolean;
+}
+
+export interface XtreamLogin {
+  /** Server base URL, e.g. http://provider.example:8080 (no trailing slash, no player_api.php). */
+  server: string;
+  username: string;
+  password: string;
+  /** Live stream container: auto = ts unless the account only allows HLS. */
+  output?: 'auto' | 'ts' | 'm3u8';
+}
+
+export interface XtreamAccount {
+  /** e.g. Active, Expired, Banned, Disabled. */
+  status?: string;
+  /** Epoch ms; undefined = no expiry. */
+  expiresAt?: number;
+  maxConnections?: number;
+  activeConnections?: number;
+  isTrial?: boolean;
+  /** Output formats the account allows, e.g. ['m3u8', 'ts']. */
+  formats?: string[];
 }
 
 export interface EpgSource {
@@ -156,6 +189,8 @@ export interface EpgSource {
   lastLoaded?: number;
   programCount?: number;
   error?: string;
+  /** Storage only: the login/link is saved in the OS keychain (store/sourceSecrets.ts). In memory only while that login could not be read. */
+  keychain?: boolean;
 }
 
 /** Pick'em / bet tracker */
