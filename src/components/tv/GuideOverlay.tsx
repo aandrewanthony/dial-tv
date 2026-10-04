@@ -9,7 +9,7 @@ import { Modal, fmtDay, fmtTime, useNow } from '../ui';
 import { programsFor, TvMark } from './personal';
 import { leftLabel } from './InfoBanner';
 import { guideProgressText, useGuide } from '../../store/guide';
-import { RecordButton } from './RecordButton';
+import { RecordButton, RecordSeriesButton } from './RecordButton';
 
 const MIN = 60_000;
 const HALF = 30 * MIN;
@@ -211,6 +211,7 @@ function ProgramDetails({ p, channel, onTune, onClose }: { p: Program; channel?:
             : <button className="primary" autoFocus onClick={() => add(5)}><Bell /> Remind me (5 min before)</button>}
           {entry ? <button onClick={remove}><Check /> In your schedule</button> : <button onClick={() => add(undefined)}><CalendarPlus /> Add to schedule</button>}
           {channel && <RecordButton channel={channel} program={p} />}
+          {channel && <RecordSeriesButton channel={channel} program={p} />}
           {channel && <button onClick={() => onTune(channel.id)}><Play /> Tune to {channel.name} now</button>}
         </div>
       </div>

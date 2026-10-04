@@ -6,6 +6,7 @@ import { navigate, sectionOf, useRoute, type Route, type Section } from './route
 import { lockedSet, orderedChannels, sha256, showScore, useApp } from '../store/app';
 import { useEngine } from '../hooks/useEngine';
 import { dvrBridge, initDvr, useDvr } from '../lib/dvr';
+import { initRecRules } from '../lib/dvrRules';
 import { SearchPalette } from '../components/SearchPalette';
 import { Modal } from '../components/ui';
 import { clutchInfo } from '../lib/sports';
@@ -69,7 +70,7 @@ const openWatch = () => navigate('watch');
 
 export default function App() {
   useEngine();
-  useEffect(() => initDvr(), []);
+  useEffect(() => { initDvr(); initRecRules(); }, []);
   const { route } = useRoute();
   useRemoteCommands(openWatch, route === 'watch');
   const hydrated = useApp((s) => s.hydrated);

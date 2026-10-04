@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('dialDesktop', {
     schedule: (job) => ipcRenderer.invoke('dvr:schedule', job),
     stop: (id) => ipcRenderer.invoke('dvr:stop', String(id)),
     remove: (id) => ipcRenderer.invoke('dvr:remove', String(id)),
+    extend: (id, end) => ipcRenderer.invoke('dvr:extend', String(id), Number(end)),
     playUrl: (id) => ipcRenderer.invoke('dvr:play-url', String(id)),
     reveal: (id) => ipcRenderer.invoke('dvr:reveal', id == null ? null : String(id)),
     settings: (patch) => ipcRenderer.invoke('dvr:settings', patch ?? null),
