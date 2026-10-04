@@ -4,7 +4,8 @@ name: Desktop apps
 #
 # COST: private-repo minutes are billed; macOS minutes count 10x, Windows 2x.
 #   Run workflow (manual) = Mac build only by default (~15 Mac min ≈ 150 billed). Tick boxes to add tests.
-#   Tag push (v*)          = Mac build + Windows build, no tests (~15 Mac min + ~6 Win ≈ 165 billed).
+#   Tag push (v*)          = Mac build only, no tests (~15 Mac min ≈ 150 billed). The Windows app is
+#                            built locally (npm run dist:win) and uploaded to the release.
 #   Tests (Mac stream lab, Windows install test) only run when ticked on a manual run.
 # Don't trigger runs casually: verify on Windows locally first and batch fixes into one release.
 on:
@@ -138,7 +139,7 @@ jobs:
           node tests/streamlab/check.mjs 9350
 
   windows:
-    if: startsWith(github.ref, 'refs/tags/') || inputs.windows == true
+    if: inputs.windows == true
     timeout-minutes: 30
     runs-on: windows-latest
     steps:
