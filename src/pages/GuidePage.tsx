@@ -10,7 +10,7 @@ import type { Channel, Program } from '../types';
 import { useTv } from '../store/tv';
 import { asChannel, personalPrograms, TvMark, usePersonalChannels } from '../components/tv/personal';
 import { cancelGuideLoad, guideProgressText, guideStatusText, loadGuide, useGuide } from '../store/guide';
-import { RecordButton } from '../components/tv/RecordButton';
+import { RecordButton, RecordSeriesButton } from '../components/tv/RecordButton';
 
 const ZOOM_PX: Record<30 | 60 | 120, number> = { 30: 9, 60: 5, 120: 3 }; // px per minute
 const CH_COL = 190;
@@ -360,6 +360,7 @@ function ProgramDrawer({ p, rowChannel, onClose }: { p: Program; rowChannel?: Ch
         <div className="col">
           {live && ch && <button className="primary" onClick={() => { useApp.getState().tune(ch.id); navigate('watch'); }}><Play /> Watch now</button>}
           {ch && <RecordButton channel={ch} program={p} />}
+          {ch && <RecordSeriesButton channel={ch} program={p} />}
           <button onClick={toggle}>
             {scheduled ? <><Check /> In your schedule</> : <><CalendarPlus /> Add to schedule (5-min reminder)</>}
           </button>

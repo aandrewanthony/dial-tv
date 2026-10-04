@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CircleDot, FolderOpen, Play, Square, Trash2, X } from 'lucide-react';
+import { CircleDot, FolderOpen, Play, Repeat, Square, Trash2, X } from 'lucide-react';
 import Player from '../player/Player';
 import { useApp } from '../store/app';
 import { resumeAt, saveProgress } from '../store/tv';
-import { fmtDay, fmtTime, Modal, useNow } from '../components/ui';
+import { fmtDay, fmtTime, Modal, Toggle, useNow } from '../components/ui';
 import { dvrBridge, fmtBytes, initDvr, useDvr, type Recording } from '../lib/dvr';
 import { navigate } from '../app/router';
-import type { Channel } from '../types';
+import { removeSeriesRule, setSeriesEnabled, setTeamOn, setTeamsOn, teamName, useRecRules } from '../lib/dvrRules';
+import { leagueLabel } from '../lib/sports';
+import type { Channel, League } from '../types';
 
 const MIN = 60_000;
 const dur = (ms: number) => {
@@ -14,6 +16,46 @@ const dur = (ms: number) => {
   return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60 ? `${m % 60} min` : ''}`.trim() : `${m} min`;
 };
 const when = (r: Recording) => `${fmtDay(r.start)} · ${fmtTime(r.start)} – ${fmtTime(r.end)}`;
+/** "Auto: Lions" tag on recordings made by a rule. */
+const AutoTag = ({ r }: { r: Recording }) => (r.rule ? <span className="recAuto">Auto: {r.rule.label}</span> : null);
+
+/** Recording rules: auto-record my teams + series rules. */
+function RulesPanel() {
+  const { teamsOn, teamsOff, series } = useRecRules();
+  const favTeams = useApp((s) => s.favTeams);
+  const games = useApp((s) => s.games);
+  return (
+    <section className="panel recRules">
+      <div className="recRuleRow head">
+        <div className="recInfo"><b>Auto-record my teams</b><small>Every game of your teams in the next week, on the channel it’s on in your playlist. Runs long? The recording keeps going (up to 90 min).</small></div>
+        <Toggle on={teamsOn} onChange={setTeamsOn} label="Auto-record my teams" />
+      </div>
+      {teamsOn && (favTeams.length ? (
+        <div className="recTeams">
+          {favTeams.map((k) => (
+            <label key={k} className="recTeam">
+              <span><b>{teamName(k, games)}</b> <small className="muted">{leagueLabel(k.split(':')[0] as League)}</small></span>
+              <Toggle on={!teamsOff.includes(k)} onChange={(on) => setTeamOn(k, on)} label={`Auto-record ${teamName(k, games)}`} />
+            </label>
+          ))}
+        </div>
+      ) : <p className="muted small">No favorite teams yet. <button className="link" onClick={() => navigate('teams')}>Pick your teams</button></p>)}
+      <h3 className="recH">Series</h3>
+      {series.length ? (
+        <div className="recList">
+          {series.map((r) => (
+            <div key={r.id} className={`recRow${r.enabled ? '' : ' off'}`}>
+              <Repeat className="recIcon" />
+              <div className="recInfo"><b>{r.title}</b><small>{r.channelName ?? 'Any channel'}{r.newOnly ? ' · New episodes only' : ''}</small></div>
+              <Toggle on={r.enabled} onChange={(on) => setSeriesEnabled(r.id, on)} label={`Record ${r.title}`} />
+              <button className="icon" onClick={() => removeSeriesRule(r.id)} title="Delete rule" aria-label={`Delete rule ${r.title}`}><Trash2 /></button>
+            </div>
+          ))}
+        </div>
+      ) : <p className="muted small">Open a show in the Guide and press <b>Record series</b> to record every airing.</p>}
+    </section>
+  );
+}
 
 /** Recordings (desktop DVR): recording now, upcoming, recorded, and what didn't record. */
 export default function RecordingsPage() {
@@ -94,6 +136,8 @@ export default function RecordingsPage() {
         <p className="muted small">Each recording is its own connection to your provider, and watching counts too. {providerMax ? <>Your provider allows <b>{providerMax}</b> at once{settings.maxConcurrent >= providerMax ? ', so recording while you watch may cut one off' : ''}.</> : 'Many providers allow only one or two at a time.'}</p>
       </section>
 
+      <RulesPanel />
+
       {!recordings.length && ready && (
         <div className="empty"><CircleDot /><b>No recordings yet</b><p>Press <b>Record</b> under the player on Live TV, or on any show in the Guide.</p>
           <button className="primary" onClick={() => navigate('guide')}>Open the Guide</button></div>
@@ -107,7 +151,7 @@ export default function RecordingsPage() {
               return (
                 <div key={r.id} className="recRow live">
                   <span className="recDot" aria-hidden />
-                  <div className="recInfo"><b>{r.title}</b><small>{r.channelName} · {when(r)}</small>
+                  <div className="recInfo"><b>{r.title}</b><AutoTag r={r} /><small>{r.channelName} · {when(r)}</small>
                     {r.status === 'recording' ? <div className="bar"><i style={{ width: `${pct}%` }} /></div> : <small className="muted">Finishing the file…</small>}
                     {r.error && <small className="warnTxt">{r.error}</small>}
                   </div>
@@ -125,7 +169,7 @@ export default function RecordingsPage() {
             {groups.upcoming.map((r) => (
               <div key={r.id} className="recRow">
                 <CircleDot className="recIcon" />
-                <div className="recInfo"><b>{r.title}</b><small>{r.channelName} · {when(r)} · {dur(r.end - r.start)}</small>
+                <div className="recInfo"><b>{r.title}</b><AutoTag r={r} /><small>{r.channelName} · {when(r)} · {dur(r.end - r.start)}</small>
                   {(conflicts.has(r.id) || r.error) && <small className="warnTxt">{r.error ?? `Overlaps more than ${settings.maxConcurrent} at once: it waits for a free slot`}</small>}
                 </div>
                 <button className="ghost" onClick={() => void b.stop(r.id)}><X /> Cancel</button>
@@ -141,7 +185,7 @@ export default function RecordingsPage() {
             {groups.done.map((r) => (
               <div key={r.id} className="recRow">
                 <button className="recPlay" onClick={() => void play(r)} aria-label={`Play ${r.title}`}><Play /></button>
-                <div className="recInfo"><b>{r.title}</b>{r.subtitle && <span className="muted"> {r.subtitle}</span>}
+                <div className="recInfo"><b>{r.title}</b>{r.subtitle && <span className="muted"> {r.subtitle}</span>}<AutoTag r={r} />
                   <small>{r.channelName} · {fmtDay(r.startedAt ?? r.start)} {fmtTime(r.startedAt ?? r.start)} · {dur((r.endedAt ?? r.end) - (r.startedAt ?? r.start))}{r.bytes ? ` · ${fmtBytes(r.bytes)}` : ''}</small>
                   {(r.partial || r.error) && <small className="warnTxt">{r.error ?? 'Partial recording'}</small>}
                 </div>

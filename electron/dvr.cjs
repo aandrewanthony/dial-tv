@@ -24,6 +24,7 @@ const MIN_FREE_START = 2 * 1024 ** 3; // don't start below 2 GB free
 const MIN_FREE_KEEP = 1 * 1024 ** 3; // stop below 1 GB free
 const MAX_RESTARTS = 6;
 const KEEP_FINISHED = 500;
+const MAX_EXTEND_MS = 90 * 60_000; // a running game can push its recording's end out this far
 
 const DEFAULT_SETTINGS = { folder: '', maxConcurrent: 2, padBefore: 1, padAfter: 3 };
 
@@ -58,6 +59,10 @@ function validateJob(raw, now = Date.now()) {
     title: str(raw.title, 200) || str(raw.channelName, 200) || 'Recording',
     subtitle: str(raw.subtitle, 300),
     programId: str(raw.programId, 300),
+    // Made by a renderer recording rule (auto-record my teams / series): shown as "Auto: …".
+    rule: raw.rule && typeof raw.rule === 'object' && typeof raw.rule.id === 'string'
+      ? { id: raw.rule.id.slice(0, 100), label: str(raw.rule.label, 100) ?? '', key: str(raw.rule.key, 400) ?? '' }
+      : undefined,
     start, end, url, headers,
   };
 }
@@ -172,6 +177,7 @@ function create({ app, ipcMain, shell, safeStorage, dialog, ffmpegBin, inputArgs
     if (!url) return fail(r, 'Stream link missing');
     const file = `${r.base}${r.parts.length ? `.part${r.parts.length + 1}` : ''}.ts`;
     r.parts.push(file);
+    job.partEnd = r.end; // -t ends this part here; a later dvr:extend continues into a new part
     let proc;
     try {
       proc = spawn(ffmpegBin, recordArgs(inputArgs, url, headers, secs, file), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
@@ -187,6 +193,11 @@ function create({ app, ipcMain, shell, safeStorage, dialog, ffmpegBin, inputArgs
       if (job.proc === proc) job.proc = null;
       if (job.stopping) return;
       const left = r.end - Date.now();
+      if (left > 5000 && Date.now() >= job.partEnd - 5000) {
+        // Ran to its planned end, but the end was pushed later (a game ran long): keep going.
+        spawnPart(r);
+        return;
+      }
       if (left > 5000 && job.restarts < MAX_RESTARTS) {
         // Dropped early: try again into a new part (back off if it fails right away).
         job.restarts++;
@@ -329,8 +340,10 @@ function create({ app, ipcMain, shell, safeStorage, dialog, ffmpegBin, inputArgs
     if (!available) return { error: 'Recording needs the built-in decoder (ffmpeg), which isn’t available' };
     const job = validateJob(raw);
     if (typeof job === 'string') return { error: job };
-    // Same programme on the same channel already scheduled: don't double up.
-    const dupe = state.recordings.find((r) => (r.status === 'scheduled' || r.status === 'recording') && r.channelId === job.channelId && r.start < job.end && r.end > job.start);
+    // Same programme on the same channel already scheduled: don't double up. (Padding makes
+    // back-to-back shows touch, so a small overlap is a different show.)
+    const dupe = state.recordings.find((r) => (r.status === 'scheduled' || r.status === 'recording') && r.channelId === job.channelId
+      && ((job.programId && r.programId === job.programId) || Math.min(r.end, job.end) - Math.max(r.start, job.start) > (job.end - job.start) / 2));
     if (dupe) return { error: 'Already recording this', id: dupe.id };
     const { url, headers, ...meta } = job;
     const r = { id: crypto.randomBytes(8).toString('hex'), ...meta, status: 'scheduled', createdAt: Date.now(), secret: enc(JSON.stringify({ url, headers })) };
@@ -346,6 +359,19 @@ function create({ app, ipcMain, shell, safeStorage, dialog, ffmpegBin, inputArgs
     if (r.status === 'scheduled') { r.status = 'cancelled'; delete r.secret; changed(); return true; }
     if (r.status === 'recording') { r.end = Math.min(r.end, Date.now()); stop(r); return true; }
     return false;
+  }));
+  // Push a recording's end later (a game running long). Capped at +90 min over the original end
+  // and the overall length limit; never shortens.
+  ipcMain.handle('dvr:extend', guard((id, end) => {
+    const r = byId(id);
+    end = Number(end);
+    if (!r || (r.status !== 'recording' && r.status !== 'scheduled') || !Number.isFinite(end)) return false;
+    r.origEnd = r.origEnd ?? r.end;
+    const next = Math.min(end, r.origEnd + MAX_EXTEND_MS, r.start + MAX_HOURS * 3600_000);
+    if (next <= r.end) return false;
+    r.end = next;
+    changed();
+    return true;
   }));
   ipcMain.handle('dvr:remove', guard(async (id) => {
     const r = byId(id);
@@ -422,4 +448,4 @@ function create({ app, ipcMain, shell, safeStorage, dialog, ffmpegBin, inputArgs
   };
 }
 
-module.exports = { create, validateJob, overlapping, recordArgs, remuxArgs, slug, stamp, DEFAULT_SETTINGS, MAX_HOURS };
+module.exports = { create, MAX_EXTEND_MS, validateJob, overlapping, recordArgs, remuxArgs, slug, stamp, DEFAULT_SETTINGS, MAX_HOURS };

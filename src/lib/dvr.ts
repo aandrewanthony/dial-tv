@@ -27,6 +27,17 @@ export interface Recording {
   partial?: boolean;
   /** An ffmpeg process is running for it right now. */
   live?: boolean;
+  /** Made by a recording rule (src/lib/dvrRules.ts). */
+  rule?: RecRule;
+  /** End before a running game pushed it later. */
+  origEnd?: number;
+}
+
+/** Which rule made a recording: `label` shows as "Auto: …", `key` identifies the game / airing. */
+export interface RecRule {
+  id: string;
+  label: string;
+  key: string;
 }
 
 export interface DvrSettings {
@@ -54,6 +65,7 @@ export interface DvrJob {
   end: number;
   url: string;
   headers: Record<string, string>;
+  rule?: RecRule;
 }
 
 export interface DvrBridge {
@@ -61,6 +73,8 @@ export interface DvrBridge {
   schedule(job: DvrJob): Promise<{ id?: string; error?: string; conflicts?: boolean }>;
   stop(id: string): Promise<boolean>;
   remove(id: string): Promise<boolean>;
+  /** Push a recording's end later (max +90 min over its original end). */
+  extend(id: string, end: number): Promise<boolean>;
   playUrl(id: string): Promise<string | null>;
   reveal(id?: string | null): Promise<boolean>;
   settings(patch?: Partial<DvrSettings> | null): Promise<DvrSettings>;
@@ -99,7 +113,7 @@ export function recordingFor(recs: Recording[], channelId: string, p: Pick<Progr
   return recs.find((r) => isActive(r) && r.channelId === channelId && (r.programId === p.id || (r.start <= p.start && r.end >= p.end)));
 }
 
-function jobBase(c: Channel) {
+export function jobBase(c: Channel) {
   return { channelId: c.id, channelName: (c as { displayName?: string }).displayName ?? c.name, url: c.url, headers: channelHeaders(c) };
 }
 

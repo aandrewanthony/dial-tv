@@ -1181,3 +1181,19 @@ button.recPlay svg { width: 14px; height: 14px; margin-left: 2px; }
 .remoteDevice > div { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .remoteDevice small { color: var(--muted); font-size: 12px; }
 @media (max-width: 520px) { .qrCode { width: 160px; height: 160px; } }
+
+/* DVR recording rules (lib/dvrRules.ts): Recordings page Rules panel, "Auto:" tags, Record series form. */
+.recRules { display: flex; flex-direction: column; gap: 12px; padding: 14px 18px; }
+.recRules p { margin: 0; }
+.recRules .recH { margin: 4px 0 0; }
+.recRuleRow { display: flex; align-items: center; gap: 12px; }
+.recTeams { display: flex; flex-wrap: wrap; gap: 8px; }
+.recTeam { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 12px; background: var(--panel2); border: 1px solid var(--line); border-radius: var(--r); font-size: 12.5px; }
+.recTeam small { font-size: 11px; }
+.recRow.off .recInfo { opacity: .55; }
+.recAuto { align-self: flex-start; font: 700 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 5px; margin: 2px 0; }
+.recInfo b + .recAuto, .recInfo .muted + .recAuto { margin-top: 3px; }
+.seriesForm { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line2); border-radius: var(--r); background: var(--panel2); }
+.seriesForm b { font-size: 13px; }
+.seriesCheck { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.seriesForm .row { display: flex; gap: 8px; }
