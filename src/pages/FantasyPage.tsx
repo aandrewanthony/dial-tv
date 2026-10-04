@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
-import { Gamepad2, Grid2x2, Lightbulb, Loader2, LogOut, Play, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, Gamepad2, Grid2x2, KeyRound, Lightbulb, Loader2, Lock, LogOut, Monitor, Play, RefreshCw, Trash2 } from 'lucide-react';
 import { useApp, type FantasyConfig } from '../store/app';
 import { useShallow } from 'zustand/react/shallow';
 import { startSitHints, useFantasy } from '../store/fantasy';
 import { sleeperProvider } from '../providers/sleeper';
-import { espnSeason, espnSnapshot } from '../providers/espnFantasy';
+import { clearEspnCookies, espnPrivateSupported, espnSeason, espnSnapshot, hasEspnCookies, saveEspnCookies } from '../providers/espnFantasy';
 import type { FantasyLeague, FantasyPlayer, FantasySnapshot, FantasyTeam } from '../providers/types';
 import { useRankedGames } from '../hooks/useSports';
 import { GameCard } from '../components/GameCard';
@@ -71,15 +71,75 @@ function SleeperConnect() {
 /** Accepts a bare id or a pasted league URL (…?leagueId=123456). */
 export const parseEspnLeagueId = (raw: string) => raw.match(/leagueId=(\d+)/i)?.[1] ?? raw.trim();
 
-function EspnTeamChoice({ snap, leagueId, season }: { snap: Pick<FantasySnapshot, 'teams' | 'league'>; leagueId: string; season: string }) {
+function EspnTeamChoice({ snap, leagueId, season, espnPrivate }: { snap: Pick<FantasySnapshot, 'teams' | 'league'>; leagueId: string; season: string; espnPrivate?: boolean }) {
   return (
     <div className="col">
       <p>Which team is yours in <b>{snap.league.name}</b>?</p>
       {snap.teams.map((t) => (
-        <button key={t.id} className="leagueBtn" onClick={() => connect({ provider: 'espn', username: '', userId: t.id, displayName: t.name, leagueId, leagueName: snap.league.name, season }, { teams: snap.teams })}>
+        <button key={t.id} className="leagueBtn" onClick={() => connect({ provider: 'espn', username: '', userId: t.id, displayName: t.name, leagueId, leagueName: snap.league.name, season, ...(espnPrivate ? { espnPrivate: true } : {}) }, { teams: snap.teams })}>
           {t.name}<small>{t.owner}</small>
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Private ESPN leagues (desktop only): the user pastes espn_s2 + SWID from their browser. They're saved
+ * write-only in the OS keychain and the desktop shell attaches them to ESPN Fantasy requests. No password.
+ */
+export function EspnCookies({ onSaved, title = 'YOUR ESPN COOKIES' }: { onSaved?: () => void; title?: string }) {
+  const [saved, setSaved] = useState<boolean>();
+  const [s2, setS2] = useState('');
+  const [swid, setSwid] = useState('');
+  const [msg, setMsg] = useState<{ ok: boolean; text: string }>();
+  useEffect(() => { void hasEspnCookies().then(setSaved); }, []);
+
+  if (!espnPrivateSupported()) {
+    return (
+      <div className="espnCookies panel">
+        <h3 className="sectionTitle"><Monitor /> PRIVATE LEAGUES NEED THE DESKTOP APP</h3>
+        <p className="muted small">ESPN only shows a private league to a signed-in ESPN account. A web page can’t send your ESPN sign-in to ESPN, so private leagues work only in the Dial TV desktop app for Windows and Mac. Here on the web, the commissioner can turn on “Make League Viewable to Public” (League → Settings → Basic Settings) and then connect it as a public league.</p>
+      </div>
+    );
+  }
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const err = await saveEspnCookies(s2, swid);
+    if (err) return setMsg({ ok: false, text: err });
+    setS2('');
+    setSwid('');
+    setSaved(true);
+    setMsg({ ok: true, text: 'Saved.' });
+    onSaved?.();
+  };
+  const remove = async () => {
+    await clearEspnCookies();
+    setSaved(false);
+    setMsg({ ok: true, text: 'Removed.' });
+  };
+
+  return (
+    <div className="espnCookies panel">
+      <h3 className="sectionTitle"><KeyRound /> {title}</h3>
+      <p className="muted small">ESPN shows private leagues only to a signed-in member. Instead of your password (Dial TV never asks for it), paste two cookies from espn.com:</p>
+      <ol className="muted small steps">
+        <li>In Chrome or Edge, sign in at <b>espn.com</b> and open your fantasy league.</li>
+        <li>Press <kbd>F12</kbd> (Mac: <kbd>⌥⌘I</kbd>) → <b>Application</b> tab → <b>Cookies</b> → <b>https://www.espn.com</b>. (Firefox: <b>Storage</b> tab; Safari: <b>Storage</b> → Cookies.)</li>
+        <li>Copy the <b>Value</b> of <code>espn_s2</code> and of <code>SWID</code> (the one in braces) into the boxes below.</li>
+      </ol>
+      <form className="col" onSubmit={save}>
+        <input className="field" type="password" autoComplete="off" spellCheck={false} aria-label="espn_s2" placeholder={saved ? 'espn_s2 saved — paste a new one to replace it' : 'espn_s2 value'} value={s2} onChange={(e) => setS2(e.target.value)} />
+        <input className="field" type="password" autoComplete="off" spellCheck={false} aria-label="SWID" placeholder={saved ? 'SWID saved — paste a new one to replace it' : 'SWID value, like {1A2B3C4D-…}'} value={swid} onChange={(e) => setSwid(e.target.value)} />
+        <div className="row">
+          <button className="primary" disabled={!s2.trim() || !swid.trim()}>Save cookies</button>
+          {saved && <button type="button" className="ghost danger" onClick={() => void remove()}><Trash2 /> Remove</button>}
+          {saved && <span className="small ok"><Check /> Cookies saved</span>}
+        </div>
+      </form>
+      <p className="small muted"><Lock /> Stored encrypted with your operating system’s keychain and sent only to ESPN Fantasy (fantasy.espn.com). They give read access to your ESPN account, so don’t share them. They stop working when you sign out of espn.com; paste fresh ones then.</p>
+      {msg && <p className={msg.ok ? 'small' : 'err'}>{msg.text}</p>}
     </div>
   );
 }
@@ -90,14 +150,18 @@ function EspnConnect() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
   const [snap, setSnap] = useState<FantasySnapshot>();
+  const [priv, setPriv] = useState(false);
+  const [cookies, setCookies] = useState(false);
   const id = parseEspnLeagueId(raw);
+  useEffect(() => { void hasEspnCookies().then(setCookies); }, [priv]);
+  const canPrivate = espnPrivateSupported();
 
   const lookup = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setErr(undefined);
     try {
-      setSnap(await espnSnapshot(id, season));
+      setSnap(await espnSnapshot(id, season, undefined, { private: priv }));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -105,16 +169,25 @@ function EspnConnect() {
     }
   };
 
-  if (snap) return <><EspnTeamChoice snap={snap} leagueId={id} season={season} /><button className="ghost" onClick={() => setSnap(undefined)}>Back</button></>;
+  if (snap) return <><EspnTeamChoice snap={snap} leagueId={id} season={season} espnPrivate={priv} /><button className="ghost" onClick={() => setSnap(undefined)}>Back</button></>;
   return (
     <>
-      <p className="muted">Paste your ESPN league link or id (fantasy.espn.com/football/league?leagueId=<b>123456</b>). Read-only; no ESPN login.</p>
-      <form onSubmit={lookup} className="row">
-        <input className="field" autoFocus aria-label="ESPN league id" placeholder="League id or link" value={raw} onChange={(e) => setRaw(e.target.value)} />
-        <input className="field small" aria-label="Season" value={season} onChange={(e) => setSeason(e.target.value.replace(/\D/g, '').slice(0, 4))} style={{ flex: '0 0 80px' }} />
-        <button className="primary" disabled={!/^\d+$/.test(id) || busy}>{busy ? <Loader2 className="spin" /> : 'Find league'}</button>
-      </form>
-      <p className="small muted">Private leagues: ESPN only shares them with a logged-in ESPN session, which Dial TV can’t use. The commissioner can turn on “Make League Viewable to Public” (League → Settings → Basic Settings); then it works here.</p>
+      <div className="chips" role="radiogroup" aria-label="League type">
+        <button role="radio" aria-checked={!priv} className={!priv ? 'on' : ''} onClick={() => { setPriv(false); setErr(undefined); }}>Public league</button>
+        <button role="radio" aria-checked={priv} className={priv ? 'on' : ''} onClick={() => { setPriv(true); setErr(undefined); }}><Lock /> Private league</button>
+      </div>
+      {priv && <EspnCookies onSaved={() => setCookies(true)} />}
+      {(!priv || canPrivate) && (
+        <>
+          <p className="muted">Paste your ESPN league link or id (fantasy.espn.com/football/league?leagueId=<b>123456</b>). Read-only{priv ? '' : '; no ESPN login'}.</p>
+          <form onSubmit={lookup} className="row">
+            <input className="field" autoFocus aria-label="ESPN league id" placeholder="League id or link" value={raw} onChange={(e) => setRaw(e.target.value)} />
+            <input className="field small" aria-label="Season" value={season} onChange={(e) => setSeason(e.target.value.replace(/\D/g, '').slice(0, 4))} style={{ flex: '0 0 80px' }} />
+            <button className="primary" disabled={!/^\d+$/.test(id) || busy || (priv && !cookies)}>{busy ? <Loader2 className="spin" /> : 'Find league'}</button>
+          </form>
+        </>
+      )}
+      {!priv && <p className="small muted">Private league? {canPrivate ? 'Choose “Private league” above and add your ESPN cookies, or the' : 'Private leagues need the Dial TV desktop app. Or the'} commissioner can turn on “Make League Viewable to Public” (League → Settings → Basic Settings).</p>}
       {err && <p className="err">{err}</p>}
     </>
   );
@@ -204,7 +277,7 @@ export default function FantasyPage() {
   const channels = useApp((s) => s.channels);
   const overrides = useApp((s) => s.networkOverrides);
   const games = useApp((s) => s.games);
-  const { matchup, loading, error, week, updated, refresh, leagues, teams, players } = useFantasy(useShallow((s) => ({ matchup: s.matchup, loading: s.loading, error: s.error, week: s.week, updated: s.updated, refresh: s.refresh, leagues: s.leagues, teams: s.teams, players: s.players })));
+  const { matchup, loading, error, errorCode, week, updated, refresh, leagues, teams, players } = useFantasy(useShallow((s) => ({ matchup: s.matchup, loading: s.loading, error: s.error, errorCode: s.errorCode, week: s.week, updated: s.updated, refresh: s.refresh, leagues: s.leagues, teams: s.teams, players: s.players })));
   const ranked = useRankedGames((g) => g.league === 'nfl' && g.state !== 'post');
   const withStakes = useMemo(() => ranked.filter((r) => r.stakes), [ranked]);
   const hints = useMemo(() => {
@@ -218,7 +291,7 @@ export default function FantasyPage() {
   if (!cfg?.leagueId) return <Connect />;
   const espn = cfg.provider === 'espn';
   if (espn && !cfg.userId) {
-    return <div className="connect panel">{teams.length ? <EspnTeamChoice snap={{ teams, league: { id: cfg.leagueId, name: cfg.leagueName ?? '', season: cfg.season ?? '' } }} leagueId={cfg.leagueId} season={cfg.season ?? espnSeason()} /> : <Loader2 className="spin" />}</div>;
+    return <div className="connect panel">{teams.length ? <EspnTeamChoice snap={{ teams, league: { id: cfg.leagueId, name: cfg.leagueName ?? '', season: cfg.season ?? '' } }} leagueId={cfg.leagueId} season={cfg.season ?? espnSeason()} espnPrivate={cfg.espnPrivate} /> : error ? <p className="err">{error}</p> : <Loader2 className="spin" />}</div>;
   }
 
   const fillMultiview = () => {
@@ -268,6 +341,12 @@ export default function FantasyPage() {
         </div>
       </div>
       {error && <div className="banner warn">{error}</div>}
+      {espn && (errorCode === 'auth' || (errorCode === 'private' && espnPrivateSupported())) && (
+        <EspnCookies
+          title={errorCode === 'auth' ? 'UPDATE YOUR ESPN COOKIES' : 'CONNECT AS A PRIVATE LEAGUE'}
+          onSaved={() => { if (!cfg.espnPrivate) set({ fantasy: { ...cfg, espnPrivate: true } }); void refresh(); }}
+        />
+      )}
       {!matchup ? (
         error ? null : <Empty title={`Loading ${cfg.leagueName ?? 'matchup'}…`} />
       ) : (

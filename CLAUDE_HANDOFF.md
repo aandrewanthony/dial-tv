@@ -42,15 +42,15 @@ Favorites, reorder/hide (dnd), global search, sports hub with live/upcoming/fina
 - Playback: player/tuning.ts maps Settings → Playback (buffer, computer, hw accel, resolution, start quality, deinterlace) to hls.js / mpegts.js / decoder configs. player/gate.ts holds playback until a cushion builds after a stall. The decoder picks its x264 preset by computer level and detects a hardware encoder (nvenc / qsv / amf / videotoolbox).
 - Sports: Bets (providers/oddsapi.ts, store/bets.ts, components/sports/*), onboarding + My Teams, ESPN Fantasy (public leagues) + Sleeper, Smart Schedule planner (lib/scheduler.ts) with auto-tune. Pick'em removed (schema v5).
 - Feature stores use store/persisted.ts; API keys use lib/secrets.ts (safeStorage on desktop).
+- Private ESPN leagues (desktop only): Fantasy → ESPN → "Private league" takes espn_s2 + SWID (never the password). They're saved as write-only secrets (`dial:secret-get` refuses them; `dial:secret-has` checks them) and `electron/espnAuth.cjs` + main.cjs add the Cookie header only to the app's https fetches to lm-api-reads.fantasy.espn.com / fantasy.espn.com (stripped if a redirect carries it elsewhere). `FantasyConfig.espnPrivate` marks the league; rejected cookies raise `EspnFantasyError` code 'auth' and the page shows the cookie form again. The web build explains that the desktop app is needed.
 - Stream lab: tests/streamlab/check.mjs plays movie files through Movies & Series; buffer.mjs measures stalls on simulated bad networks (/net/jitter, /net/slow); vod.mjs tests VOD seek/startAt.
 
 ## Not done / next
 - Phase 2: a Dial TV-hosted fantasy league (needs a server and accounts; the owner wants it).
-- Private ESPN fantasy leagues (espn_s2 / SWID cookies via the desktop shell).
 - HLS buffering on jittery networks is not improved yet (the lab's HLS channel also throws a Chromium decode error in the baseline).
 - Unit tests for player/tuning.ts and decoder argument generation.
 - **Remote Control mode** (phone → desktop over LAN WebSocket with pairing). Add a small WebSocket server in `electron/main.cjs` + a `/remote` route.
-- **Multiple fantasy platforms** (ESPN private leagues need cookies; Yahoo needs OAuth — do via a server-side or Electron safeStorage token store, never localStorage).
+- **Multiple fantasy platforms** (Yahoo needs OAuth — do via a server-side or Electron safeStorage token store, never localStorage).
 - **Win probability chart** — `providers/espn.ts#winProbability` is implemented but not yet charted on the game card.
 - **Xtream Codes login** as a source type (player_api.php) — today use the provider's M3U URL.
 - **Personal Linear Channel** (local/VOD pseudo-channel) from the original backlog.

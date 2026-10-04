@@ -187,6 +187,17 @@ test('smart schedule proposes a plan and flags the conflict', async ({ page }) =
   await expect(page.locator('.agendaRow').first()).toContainText('@');
 });
 
+test('fantasy: private ESPN leagues explain the desktop app on the web (no cookie fields)', async ({ page }) => {
+  await page.goto('/#/fantasy');
+  await page.getByRole('tab', { name: 'ESPN' }).click();
+  await page.getByRole('radio', { name: 'Private league' }).click();
+  await expect(page.locator('.espnCookies')).toContainText('PRIVATE LEAGUES NEED THE DESKTOP APP');
+  await expect(page.getByLabel('espn_s2')).toHaveCount(0);
+  await expect(page.getByLabel('ESPN league id')).toHaveCount(0);
+  await page.getByRole('radio', { name: 'Public league' }).click();
+  await expect(page.getByLabel('ESPN league id')).toBeVisible();
+});
+
 test('fantasy: connect a public ESPN league and see the matchup', async ({ page }) => {
   await page.goto('/#/fantasy');
   await page.getByRole('tab', { name: 'ESPN' }).click();

@@ -17,6 +17,8 @@ interface FantasyState {
   platform?: FantasyPlatform;
   loading: boolean;
   error?: string;
+  /** ESPN: 'auth' when the saved private-league cookies were rejected, 'private' when the league needs them. */
+  errorCode?: string;
   updated?: number;
   refresh: () => Promise<void>;
 }
@@ -68,7 +70,7 @@ const ADAPTERS: Record<FantasyPlatform, (cfg: FantasyConfig) => Promise<Loaded>>
   },
   async espn(cfg) {
     if (!cfg.leagueId) throw new Error('No ESPN league connected');
-    const snap = await espnSnapshot(cfg.leagueId, cfg.season ?? espnSeason(), cfg.userId || undefined);
+    const snap = await espnSnapshot(cfg.leagueId, cfg.season ?? espnSeason(), cfg.userId || undefined, { private: cfg.espnPrivate });
     return { ...snap, leagues: [snap.league] };
   },
 };
@@ -81,7 +83,7 @@ export const useFantasy = create<FantasyState>((set) => {
       return;
     }
     const key = cfgKey(cfg);
-    set({ loading: true, error: undefined });
+    set({ loading: true, error: undefined, errorCode: undefined });
     try {
       const r = await ADAPTERS[cfg.provider](cfg);
       // Config changed while we were loading: drop this result and load again.
@@ -95,7 +97,7 @@ export const useFantasy = create<FantasyState>((set) => {
         rerun = true;
         return;
       }
-      set({ loading: false, error: (e as Error).message });
+      set({ loading: false, error: (e as Error).message, errorCode: (e as { code?: string }).code });
     }
   }
 

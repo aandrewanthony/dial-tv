@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('dialDesktop', {
   secrets: {
     get: (name) => ipcRenderer.invoke('dial:secret-get', name),
     set: (name, value) => ipcRenderer.invoke('dial:secret-set', name, value),
+    // Whether a secret is saved (for write-only ones like the ESPN cookies, which can't be read back).
+    has: (name) => ipcRenderer.invoke('dial:secret-has', name),
   },
   platform: process.platform,
   setMiniPlayer: (on) => ipcRenderer.invoke('dial:mini-player', !!on),
