@@ -3,7 +3,7 @@ import { CalendarDays, ChevronDown, ChevronUp, Clock, Heart, History, Info, Layo
 import { useShallow } from 'zustand/react/shallow';
 import { desktop } from '../lib/net';
 import Player, { type PlayerHandle } from '../player/Player';
-import { useApp } from '../store/app';
+import { showScore, useApp } from '../store/app';
 import { isPersonalId, useTv } from '../store/tv';
 import { pushRecent, setChannelPrefs, useChannelPrefs } from '../store/channelPrefs';
 import { LockedScreen, fmtTime, useLockedOut, useNow } from '../components/ui';
@@ -21,13 +21,13 @@ import { GroupRail, type RailItem } from '../components/channels/GroupRail';
 import { GroupPicker, GroupPickerAuto } from '../components/channels/GroupPicker';
 import { useSportRail } from '../components/channels/useSportRail';
 import { StartUpAsk, useStartUp } from '../components/tv/StartUp';
-import { usePenaltyAlerts } from '../lib/penalty';
+import { remoteGame, useGameFeed } from '../lib/penalty';
 import { RedZoneButton, useRedZoneSwitch } from '../components/tv/RedZone';
 import { SPORTS, sportInfo, type SportKey } from '../lib/sportsOf';
 import { countryName, defaultGroupLabel } from '../lib/channelOrg';
 import { QualityButton } from '../components/channels/ChannelMenu';
 import { RecordButton } from '../components/tv/RecordButton';
-import { applyRemoteCommand, remoteBridge, setRemoteHandler, type RemoteState, type RemoteTarget } from '../lib/remote';
+import { applyRemoteCommand, remoteBridge, setRemoteHandler, useRemotePhoneConnected, type RemoteState, type RemoteTarget } from '../lib/remote';
 import type { Channel } from '../types';
 
 /** Keys on these targets belong to the element (Space activates buttons/switches). */
@@ -222,6 +222,23 @@ export default function WatchPage() {
     });
   }, [remoteReady]);
   const favList = useMemo(() => list.filter((c) => isFavorite(favorites, c)), [list, favorites]);
+
+  // Live game on the tuned channel → score bug (broadcast matching uses the raw playlist entries).
+  const liveGame = useMemo(() => {
+    if (!current || personal) return undefined;
+    const ids = isOrg(current) ? current.memberIds : [current.id];
+    return Object.values(games).find((g) => {
+      if (g.state !== 'in') return false;
+      const m = matchBroadcasts(g.broadcasts, channels, overrides)?.channel.id;
+      return !!m && ids.includes(m);
+    });
+  }, [games, channels, overrides, current, personal]);
+  // One ESPN summary poller for both the penalty toasts and the phone's Game tab.
+  const phoneConnected = useRemotePhoneConnected();
+  const gameFeed = useGameFeed(liveGame, phoneConnected);
+  const revealGame = useApp((s) => (liveGame ? showScore(s, liveGame.id) : true));
+  const phoneGame = useMemo(() => (liveGame ? remoteGame(liveGame, gameFeed, revealGame) : undefined), [liveGame, gameFeed, revealGame]);
+
   // Now playing → paired phones.
   useEffect(() => {
     const b = remoteBridge();
@@ -236,21 +253,10 @@ export default function WatchPage() {
       state.time = p ? `${fmtTime(p.start)} – ${fmtTime(p.end)}` : undefined;
       state.next = n ? `${fmtTime(n.start)} · ${n.title}` : undefined;
       state.guideOpen = guideOpen;
+      state.game = phoneGame;
     }
     b.publish(state);
-  }, [current, now, ctx, guideOpen, favList]);
-
-  // Live game on the tuned channel → score bug (broadcast matching uses the raw playlist entries).
-  const liveGame = useMemo(() => {
-    if (!current || personal) return undefined;
-    const ids = isOrg(current) ? current.memberIds : [current.id];
-    return Object.values(games).find((g) => {
-      if (g.state !== 'in') return false;
-      const m = matchBroadcasts(g.broadcasts, channels, overrides)?.channel.id;
-      return !!m && ids.includes(m);
-    });
-  }, [games, channels, overrides, current, personal]);
-  usePenaltyAlerts(liveGame);
+  }, [current, now, ctx, guideOpen, favList, phoneGame]);
   useRedZoneSwitch(current?.id, org);
 
   // Group rail: All, Favorites, Recently watched, My Channels, Sports (one row per sport), then the

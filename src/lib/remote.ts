@@ -3,7 +3,7 @@
  * shell's LAN server (electron/remote.cjs). The main process validates them; here they are
  * routed to Live TV, which maps them onto its existing actions (tune, player handle, guide).
  */
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { desktop } from './net';
 import { ROUTES } from '../app/router';
 import type { Channel } from '../types';
@@ -23,6 +23,36 @@ export interface RemoteState {
   next?: string;
   guideOpen?: boolean;
   favorites: { id: string; number: string; name: string }[];
+  /** Live game on the tuned channel (the phone's Game tab). */
+  game?: RemoteGame;
+}
+
+export interface RemoteGameSide { abbr: string; name: string; score?: string; color?: string; poss?: boolean }
+export interface RemotePlay {
+  id: string;
+  text: string;
+  /** "Q3 4:12", "Top 5th". */
+  when?: string;
+  scoring?: boolean;
+  /** Parsed flag: "Offensive Holding · MIA · P.Paul · 10 yards". */
+  penalty?: string;
+}
+export interface RemoteGame {
+  id: string;
+  league: string;
+  away: RemoteGameSide;
+  home: RemoteGameSide;
+  /** "Q4 2:11" */
+  status: string;
+  /** "3rd & 7 at NYJ 22", "2 outs · on 1st, 3rd". */
+  situation?: string;
+  redZone?: boolean;
+  /** Spoiler shield on for this game: teams only. */
+  hidden?: boolean;
+  /** Play-by-play is available for this league. */
+  feed: boolean;
+  /** Newest first, up to 15. */
+  plays: RemotePlay[];
 }
 
 export interface RemoteDevice { id: string; name: string; created: number; lastSeen: number; connected?: boolean }
@@ -81,6 +111,21 @@ const routeIsWatch = () => {
   const r = location.hash.replace(/^#\/?/, '').split('/')[0];
   return r === 'watch' || !(ROUTES as string[]).includes(r);
 };
+
+/** True while the remote server is on and at least one paired phone is connected (desktop only). */
+export function useRemotePhoneConnected(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const b = remoteBridge();
+    if (!b) return;
+    let alive = true;
+    const apply = (s: RemoteStatus | null) => { if (alive) setOn(!!s?.on && s.devices.some((d) => d.connected)); };
+    void b.status().then(apply, () => {});
+    const off = b.onStatus(apply);
+    return () => { alive = false; off(); };
+  }, []);
+  return on;
+}
 
 /** App-wide: listen to the desktop bridge (no-op on the web). */
 export function useRemoteCommands(openWatch: () => void, onWatch: boolean) {

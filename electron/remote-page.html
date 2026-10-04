@@ -12,9 +12,10 @@
   :root {
     --bg: #f3f4f7; --card: #ffffff; --btn: #e7e9ee; --btn-press: #d5d9e1; --text: #12151b; --muted: #5f6673;
     --line: #d9dce3; --accent: #e23b3b; --accent-text: #fff; --good: #1d9a55; --bad: #c53030;
+    --flag: #f5c400; --flag-bg: #fff8db; --flag-line: #ecd27a;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #080a0f; --card: #10141b; --btn: #1a1f29; --btn-press: #262d3a; --text: #f4f5f7; --muted: #8b92a0; --line: #232833; --accent: #ff4d4d; --good: #3ccf7a; --bad: #ff5a5a; }
+    :root { --bg: #080a0f; --card: #10141b; --btn: #1a1f29; --btn-press: #262d3a; --text: #f4f5f7; --muted: #8b92a0; --line: #232833; --accent: #ff4d4d; --good: #3ccf7a; --bad: #ff5a5a; --flag: #f5c400; --flag-bg: #241e06; --flag-line: #5c4c0c; }
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -56,6 +57,38 @@
   .primary { background: var(--accent); color: var(--accent-text); border-radius: 14px; min-height: 56px; font-weight: 800; font-size: 17px; }
   .msg { min-height: 1.4em; color: var(--bad); margin: 0; }
   .help { color: var(--muted); font-size: 14px; margin: 0; }
+  /* Game tab (second screen for live sports) */
+  .tabs { display: grid; grid-template-columns: 1fr 1.6fr; gap: 6px; background: var(--btn); border-radius: 14px; padding: 4px; margin-bottom: 14px; }
+  .tab { background: transparent; border-radius: 11px; min-height: 44px; font-weight: 700; font-size: 15px; color: var(--muted); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tab[aria-selected="true"] { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .tab .live { color: var(--accent); }
+  .sb { padding: 8px 16px 12px; }
+  .sbRow { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .sbRow:last-of-type { border-bottom: 0; }
+  .sw { width: 6px; align-self: stretch; border-radius: 3px; background: var(--line); flex: none; }
+  .tm { flex: 1; min-width: 0; }
+  .tm b { display: block; font-size: 26px; font-weight: 800; letter-spacing: .02em; line-height: 1.1; }
+  .tm small { display: block; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .poss { color: var(--accent); font-size: 13px; font-weight: 800; letter-spacing: .06em; visibility: hidden; }
+  .poss.on { visibility: visible; }
+  .sc { font: 800 48px/1 ui-monospace, Menlo, monospace; min-width: 1.6em; text-align: right; font-variant-numeric: tabular-nums; }
+  .sbMeta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin-top: 8px; font-weight: 700; }
+  .sbMeta .st { color: var(--accent); }
+  .sbMeta .sit { color: var(--muted); }
+  .sbMeta .sit.rz { color: var(--bad); }
+  .feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .play { background: var(--card); border: 1px solid var(--line); border-left-width: 4px; border-radius: 12px; padding: 10px 12px; }
+  .play .pm { display: flex; gap: 8px; align-items: center; font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .04em; margin-bottom: 2px; }
+  .play p { margin: 0; overflow-wrap: anywhere; font-size: 15px; }
+  .play .tag { border-radius: 6px; padding: 1px 6px; font-size: 11px; letter-spacing: .06em; }
+  .play.score { border-left-color: var(--good); }
+  .play.score .tag { background: var(--good); color: #fff; }
+  .play.pen { border-color: var(--flag-line); border-left-color: var(--flag); background: var(--flag-bg); }
+  .play.pen .tag { background: var(--flag); color: #1a1400; }
+  .play .flag { font-weight: 800; font-size: 16px; margin: 2px 0 4px; overflow-wrap: anywhere; }
+  .play.new { animation: flash 1.6s ease-out; }
+  @keyframes flash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 3px transparent; } }
+  @media (prefers-reduced-motion: reduce) { .play.new { animation: none; } }
   .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-weight: 600; font-size: 14px; }
 </style>
 </head>
@@ -75,6 +108,22 @@
 </section>
 
 <main id="remoteView" class="hidden">
+  <nav class="tabs hidden" id="tabs" role="tablist">
+    <button class="tab" id="tabRemote" role="tab" aria-selected="true" aria-controls="remotePane">Remote</button>
+    <button class="tab" id="tabGame" role="tab" aria-selected="false" aria-controls="gamePane"></button>
+  </nav>
+
+  <div id="gamePane" class="hidden" role="tabpanel">
+    <section class="card sb" aria-live="polite">
+      <div class="sbRow" id="sbAway"><i class="sw"></i><div class="tm"><b></b><small></small></div><span class="poss">BALL</span><strong class="sc"></strong></div>
+      <div class="sbRow" id="sbHome"><i class="sw"></i><div class="tm"><b></b><small></small></div><span class="poss">BALL</span><strong class="sc"></strong></div>
+      <div class="sbMeta"><span class="st" id="sbStatus"></span><span class="sit" id="sbSit"></span></div>
+    </section>
+    <h2 id="feedHead">PLAY-BY-PLAY</h2>
+    <ol class="feed" id="feed"></ol>
+  </div>
+
+  <div id="remotePane" role="tabpanel">
   <section class="card np" aria-live="polite">
     <small id="npCh">—</small>
     <h1 id="npName">Not playing</h1>
@@ -107,6 +156,7 @@
 
   <h2>FAVORITES</h2>
   <div class="favs" id="favs"><p class="empty">Star channels in Dial TV to see them here.</p></div>
+  </div>
 </main>
 
 <div id="toast" class="toast hidden" role="status"></div>
@@ -245,6 +295,84 @@
       b.append(n, t);
       b.addEventListener('click', () => send({ type: 'tune', id: f.id }));
       favs.appendChild(b);
+    }
+    renderGame(s.game && typeof s.game === 'object' && s.game.away && s.game.home ? s.game : null);
+  }
+
+  // ---- Game tab: score bug + play-by-play for the live game on the tuned channel ----
+  let tab = 'remote';
+  let memo = { id: null, score: '', flags: new Set(), plays: new Set() };
+  function setTab(t) {
+    tab = t;
+    $('tabRemote').setAttribute('aria-selected', String(t === 'remote'));
+    $('tabGame').setAttribute('aria-selected', String(t === 'game'));
+    $('remotePane').classList.toggle('hidden', t !== 'remote');
+    $('gamePane').classList.toggle('hidden', t !== 'game');
+  }
+  $('tabRemote').addEventListener('click', () => setTab('remote'));
+  $('tabGame').addEventListener('click', () => setTab('game'));
+
+  const str = (v) => (v == null ? '' : String(v));
+  function side(row, t, hidden) {
+    const el = $(row);
+    el.querySelector('.sw').style.background = /^#[0-9a-f]{6}$/i.test(str(t.color)) ? t.color : '';
+    el.querySelector('.tm b').textContent = str(t.abbr);
+    el.querySelector('.tm small').textContent = str(t.name);
+    el.querySelector('.poss').classList.toggle('on', !hidden && t.poss === true);
+    el.querySelector('.sc').textContent = hidden ? '–' : str(t.score);
+  }
+  function buzz(g) {
+    const score = str(g.away.score) + '-' + str(g.home.score);
+    const plays = Array.isArray(g.plays) ? g.plays : [];
+    const flags = plays.filter((p) => p.penalty).map((p) => p.id);
+    if (memo.id !== g.id) { memo = { id: g.id, score, flags: new Set(flags), plays: new Set(plays.map((p) => p.id)) }; return new Set(); }
+    let pattern = null;
+    if (!g.hidden && score !== memo.score && memo.score !== '-') pattern = [90, 60, 90];
+    if (flags.some((id) => !memo.flags.has(id))) pattern = pattern || [220];
+    const fresh = new Set(plays.filter((p) => !memo.plays.has(p.id)).map((p) => p.id));
+    for (const id of flags) memo.flags.add(id);
+    for (const p of plays) memo.plays.add(p.id);
+    memo.score = score;
+    if (pattern && navigator.vibrate && document.visibilityState === 'visible') { try { navigator.vibrate(pattern); } catch { /* not allowed */ } }
+    return fresh;
+  }
+  function renderGame(g) {
+    $('tabs').classList.toggle('hidden', !g);
+    if (!g) { memo = { id: null, score: '', flags: new Set(), plays: new Set() }; if (tab !== 'remote') setTab('remote'); return; }
+    const hidden = g.hidden === true;
+    const tg = $('tabGame');
+    tg.textContent = '';
+    const dot = document.createElement('span'); dot.className = 'live'; dot.textContent = '● ';
+    tg.append(dot, 'Game · ' + (hidden ? str(g.away.abbr) + ' @ ' + str(g.home.abbr) : str(g.away.abbr) + ' ' + str(g.away.score) + '–' + str(g.home.score) + ' ' + str(g.home.abbr)));
+    side('sbAway', g.away, hidden);
+    side('sbHome', g.home, hidden);
+    $('sbStatus').textContent = str(g.status);
+    const sit = $('sbSit');
+    sit.textContent = hidden ? '' : str(g.situation);
+    sit.classList.toggle('rz', g.redZone === true);
+    const fresh = buzz(g);
+    const feed = $('feed');
+    feed.textContent = '';
+    const plays = Array.isArray(g.plays) ? g.plays : [];
+    $('feedHead').classList.toggle('hidden', hidden || (!g.feed && !plays.length));
+    if (hidden) return;
+    if (!plays.length) {
+      if (!g.feed) return;
+      const p = document.createElement('p'); p.className = 'empty'; p.textContent = 'Waiting for plays…';
+      feed.appendChild(p);
+      return;
+    }
+    for (const p of plays) {
+      const li = document.createElement('li');
+      li.className = 'play' + (p.penalty ? ' pen' : p.scoring ? ' score' : '') + (fresh.has(p.id) ? ' new' : '');
+      const meta = document.createElement('div'); meta.className = 'pm';
+      if (p.when) { const w = document.createElement('span'); w.textContent = str(p.when); meta.appendChild(w); }
+      if (p.penalty || p.scoring) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = p.penalty ? 'FLAG' : 'SCORE'; meta.appendChild(t); }
+      if (meta.childNodes.length) li.appendChild(meta);
+      if (p.penalty) { const f = document.createElement('div'); f.className = 'flag'; f.textContent = '🚩 ' + str(p.penalty); li.appendChild(f); }
+      const t = document.createElement('p'); t.textContent = str(p.text);
+      li.appendChild(t);
+      feed.appendChild(li);
     }
   }
 
