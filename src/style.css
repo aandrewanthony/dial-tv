@@ -1204,3 +1204,6 @@ button.recPlay svg { width: 14px; height: 14px; margin-left: 2px; }
 .guideSports .sportTab .sportIcon svg { width: 17px; height: 17px; }
 .guideSports .sportTab b { font-size: 12.5px; }
 select.field.guideSort { flex: 0 0 auto; width: auto; }
+button.redZoneBtn svg { color: var(--warn); }
+button.redZoneBtn.on { background: var(--warn); border-color: var(--warn); color: #111; }
+button.redZoneBtn.on svg { color: #111; fill: #111; }

@@ -22,6 +22,7 @@ import { GroupPicker, GroupPickerAuto } from '../components/channels/GroupPicker
 import { useSportRail } from '../components/channels/useSportRail';
 import { StartUpAsk, useStartUp } from '../components/tv/StartUp';
 import { usePenaltyAlerts } from '../lib/penalty';
+import { RedZoneButton, useRedZoneSwitch } from '../components/tv/RedZone';
 import { SPORTS, sportInfo, type SportKey } from '../lib/sportsOf';
 import { countryName, defaultGroupLabel } from '../lib/channelOrg';
 import { QualityButton } from '../components/channels/ChannelMenu';
@@ -250,6 +251,7 @@ export default function WatchPage() {
     });
   }, [games, channels, overrides, current, personal]);
   usePenaltyAlerts(liveGame);
+  useRedZoneSwitch(current?.id, org);
 
   // Group rail: All, Favorites, Recently watched, My Channels, Sports (one row per sport), then the
   // visible groups folded by country (home country open).
@@ -411,6 +413,7 @@ export default function WatchPage() {
               <Heart fill={fav ? 'currentColor' : 'none'} /> {fav ? 'Favorited' : 'Favorite'}
             </button>
             {!personal && <RecordButton channel={current} now={np} />}
+            <RedZoneButton />
             {org1 && <QualityButton c={org1} />}
             {prev && <button onClick={() => tune(prev.id)} title="Last channel (L)"><History /> {isOrg(prev) ? prev.displayName : prev.name}</button>}
             {personal && <button onClick={() => navigate('channels')}><ListVideo /> Edit channel</button>}
