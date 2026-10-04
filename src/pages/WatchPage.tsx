@@ -24,6 +24,7 @@ import { SPORTS, sportInfo, type SportKey } from '../lib/sportsOf';
 import { countryName, defaultGroupLabel } from '../lib/channelOrg';
 import { QualityButton } from '../components/channels/ChannelMenu';
 import { RecordButton } from '../components/tv/RecordButton';
+import { applyRemoteCommand, remoteBridge, setRemoteHandler, type RemoteState, type RemoteTarget } from '../lib/remote';
 import type { Channel } from '../types';
 
 /** Keys on these targets belong to the element (Space activates buttons/switches). */
@@ -197,6 +198,43 @@ export default function WatchPage() {
     window.addEventListener('keydown', onKey, { capture: true });
     return () => { window.removeEventListener('keydown', onKey, { capture: true }); clearTimeout(digitTimer); };
   }, []);
+
+  // Remote Control (phone on the LAN, desktop only): the same actions as the keys above.
+  const remoteRef = useRef<Omit<RemoteTarget, 'player'>>();
+  remoteRef.current = {
+    list,
+    currentId: current?.id,
+    prevId: prevChannelId,
+    tune,
+    toggleGuide: () => setGuideOpen((o) => !o),
+    notFound: (n) => useApp.getState().toast({ kind: 'error', title: `CH ${n} not found`, ttl: 3000 }),
+  };
+  // Take commands once the lineup is ready (it organizes after mount); until then they wait.
+  const remoteReady = list.length > 0;
+  useEffect(() => {
+    if (!remoteReady) return;
+    return setRemoteHandler((cmd) => {
+      if (remoteRef.current) applyRemoteCommand(cmd, { ...remoteRef.current, player: player.current });
+    });
+  }, [remoteReady]);
+  const favList = useMemo(() => list.filter((c) => isFavorite(favorites, c)), [list, favorites]);
+  // Now playing → paired phones.
+  useEffect(() => {
+    const b = remoteBridge();
+    if (!b) return;
+    const name = (c: Channel) => (isOrg(c) ? c.displayName : c.name);
+    const state: RemoteState = { channel: null, favorites: favList.slice(0, 200).map((c) => ({ id: c.id, number: String(c.number), name: name(c) })) };
+    if (current) {
+      const { now: p, next: n } = nowNext(current.id, now, ctx);
+      state.channel = { number: String(current.number), name: name(current) };
+      state.currentId = current.id;
+      state.title = p?.title;
+      state.time = p ? `${fmtTime(p.start)} – ${fmtTime(p.end)}` : undefined;
+      state.next = n ? `${fmtTime(n.start)} · ${n.title}` : undefined;
+      state.guideOpen = guideOpen;
+    }
+    b.publish(state);
+  }, [current, now, ctx, guideOpen, favList]);
 
   // Live game on the tuned channel → score bug (broadcast matching uses the raw playlist entries).
   const liveGame = useMemo(() => {

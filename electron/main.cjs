@@ -8,6 +8,7 @@ const decoder = require('./decoder.cjs');
 const installer = require('./installer.cjs');
 const dvr = require('./dvr.cjs');
 const espnAuth = require('./espnAuth.cjs');
+const remote = require('./remoteMain.cjs');
 const { cleanHeader, VLC_UA } = decoder;
 
 const isDev = !app.isPackaged && process.env.DIAL_DEV_URL;
@@ -264,7 +265,10 @@ app.whenReady().then(async () => {
   allowCrossOrigin();
   decoder.start(app, ipcMain);
   startDvr();
+  remote.init({ app, ipcMain, isApp: (id) => appContents.has(id), window: () => win });
   createWindow();
   app.on('activate', () => { if (!win) createWindow(); });
 });
 app.on('window-all-closed', () => process.platform !== 'darwin' && app.quit());
+// The remote server never outlives the app.
+app.on('will-quit', () => { void remote.shutdown(); });

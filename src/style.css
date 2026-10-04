@@ -1168,3 +1168,16 @@ button.recPlay svg { width: 14px; height: 14px; margin-left: 2px; }
 .exportLogins input { margin-top: 3px; accent-color: var(--accent); }
 .exportLogins span { display: flex; flex-direction: column; gap: 2px; }
 .exportLogins small { color: var(--muted); font-size: 12px; }
+/* Remote Control (Settings → Remote) */
+.remotePair { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; padding: 14px 0; border-top: 1px solid var(--line); }
+.qrCode { width: 200px; height: 200px; flex: none; border-radius: 8px; display: block; }
+.remotePairInfo { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.remotePairInfo button { align-self: flex-start; }
+.remoteUrl { font: 700 16px var(--mono); overflow-wrap: anywhere; margin-bottom: 8px; }
+.remoteCode { font: 700 34px var(--mono); letter-spacing: .25em; color: var(--accent); }
+.remoteHelp { margin: 12px 0 0; }
+.remoteDevices { display: flex; flex-direction: column; gap: 8px; }
+.remoteDevice { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--panel2); border: 1px solid var(--line); border-radius: var(--r); }
+.remoteDevice > div { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.remoteDevice small { color: var(--muted); font-size: 12px; }
+@media (max-width: 520px) { .qrCode { width: 160px; height: 160px; } }
