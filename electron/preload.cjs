@@ -18,6 +18,24 @@ contextBridge.exposeInMainWorld('dialDesktop', {
     url: (src, headers, opts) => ipcRenderer.invoke('dial:decoder-url', String(src), headers ?? {}, opts ?? {}),
     infoFor: (src) => ipcRenderer.invoke('dial:decoder-info-for', String(src)),
   },
+  // Remote Control (phone on the LAN). Commands arrive already validated by the main process.
+  remote: {
+    status: () => ipcRenderer.invoke('dial:remote-status'),
+    setEnabled: (on) => ipcRenderer.invoke('dial:remote-enable', on === true),
+    revoke: (id) => ipcRenderer.invoke('dial:remote-revoke', String(id)),
+    newCode: () => ipcRenderer.invoke('dial:remote-new-code'),
+    publish: (state) => ipcRenderer.send('dial:remote-state', state),
+    onCommand: (cb) => {
+      const h = (_e, cmd, from) => cb(cmd, from);
+      ipcRenderer.on('dial:remote-cmd', h);
+      return () => ipcRenderer.removeListener('dial:remote-cmd', h);
+    },
+    onStatus: (cb) => {
+      const h = (_e, s) => cb(s);
+      ipcRenderer.on('dial:remote-status', h);
+      return () => ipcRenderer.removeListener('dial:remote-status', h);
+    },
+  },
 });
 
 // A file dropped anywhere the app doesn't handle it must not navigate the window away.

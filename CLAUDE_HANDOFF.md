@@ -49,7 +49,6 @@ Favorites, reorder/hide (dnd), global search, sports hub with live/upcoming/fina
 - Private ESPN fantasy leagues (espn_s2 / SWID cookies via the desktop shell).
 - HLS buffering on jittery networks is not improved yet (the lab's HLS channel also throws a Chromium decode error in the baseline).
 - Unit tests for player/tuning.ts and decoder argument generation.
-- **Remote Control mode** (phone → desktop over LAN WebSocket with pairing). Add a small WebSocket server in `electron/main.cjs` + a `/remote` route.
 - **Multiple fantasy platforms** (ESPN private leagues need cookies; Yahoo needs OAuth — do via a server-side or Electron safeStorage token store, never localStorage).
 - **Win probability chart** — `providers/espn.ts#winProbability` is implemented but not yet charted on the game card.
 - **Xtream Codes login** as a source type (player_api.php) — today use the provider's M3U URL.
@@ -60,6 +59,9 @@ Favorites, reorder/hide (dnd), global search, sports hub with live/upcoming/fina
 ## Built-in decoder (v0.4)
 `electron/decoder.cjs` probes each stream with the bundled ffmpeg (`resources/ffmpeg`) and, when Chromium can't decode its codecs, serves an H.264/AAC MPEG-TS conversion from a token-protected 127.0.0.1 server. The player (`src/player/Player.tsx`) probes in parallel with direct playback. It switches when the codecs are unsupported, when playback errors, or when picture or sound bytes aren't decoding (silent AC-3 / MPEG-2 failures). Channels that needed the decoder are remembered (`settings.decoderChannels`). Verified with `tests/streamlab` (13/13 formats on Windows packaged build; CI runs it on packaged Mac arm64 + x64).
 
+## Remote Control (v0.8)
+Phone remote over the LAN, desktop only, off by default (Settings → Remote). `electron/remoteCore.cjs` = pure pairing/token/rate-limit/WS framing (unit tested); `electron/remote.cjs` = HTTP + hand-rolled WebSocket server (no deps; ports 47800–47804, then any free port), serves `electron/remote-page.html` (self-contained phone UI); `electron/remoteMain.cjs` = IPC + `userData/remote.json` ({ enabled, devices } with SHA-256 token hashes only) + stop on quit. Pairing: 6-digit code, single use; 5 wrong tries per address → 5-min lockout; 10 wrong tries overall → new code. Every WS message carries the token; revoke closes the socket. Host header must be an IP literal (anti DNS-rebinding), Origin must match. Renderer: `src/lib/remote.ts` (types, command routing/queue, `applyRemoteCommand`), Live TV registers the handler and publishes now-playing + favorites; `src/lib/qr.ts` is an offline QR encoder (byte mode, level M, v1–10).
+
 ## Constraints learned
 - ESPN `/teams` lacks CORS → team lists come from `/standings`. Scoreboard date *ranges* return nothing → one request per day.
 - Chromium now plays HLS natively; we still prefer hls.js (track menus + stats), native only when MSE is missing (iOS).
@@ -67,4 +69,4 @@ Favorites, reorder/hide (dnd), global search, sports hub with live/upcoming/fina
 - The dev PC enforces Smart App Control. The Tauri CLI native binary is blocked there, so the shell moved to Electron (33.2.0, `signAndEditExecutable: false`); its built exes are verified to run on this PC. Mac builds run on GitHub's macOS runner.
 
 ## Security
-Playlists/EPG are untrusted: http(s)-only URLs, no provider HTML rendered, credentials redacted in UI/stats (`lib/url.ts#redactUrl`), the Electron renderer is sandboxed with contextIsolation; the preload exposes only `setMiniPlayer` / `version`, and the app never navigates away from its own files.
+Playlists/EPG are untrusted: http(s)-only URLs, no provider HTML rendered, credentials redacted in UI/stats (`lib/url.ts#redactUrl`), the Electron renderer is sandboxed with contextIsolation; the preload exposes a small explicit bridge (`setMiniPlayer`, `version`, secrets, decoder, stream headers, `remote` — commands arrive pre-validated by the main process), and the app never navigates away from its own files.

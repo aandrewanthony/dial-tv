@@ -11,6 +11,7 @@ import { clutchInfo } from '../lib/sports';
 import { Onboarding, useOnboardingGate } from '../components/sports/Onboarding';
 import HomePage from '../pages/HomePage';
 import WatchPage from '../pages/WatchPage';
+import { useRemoteCommands } from '../lib/remote';
 
 const GuidePage = lazy(() => import('../pages/GuidePage'));
 const SportsPage = lazy(() => import('../pages/SportsPage'));
@@ -59,9 +60,13 @@ const TITLES: Record<Route, [string, string]> = {
   settings: ['SYSTEM', 'Settings'],
 };
 
+/** Remote commands open Live TV when they arrive on another page. */
+const openWatch = () => navigate('watch');
+
 export default function App() {
   useEngine();
   const { route } = useRoute();
+  useRemoteCommands(openWatch, route === 'watch');
   const hydrated = useApp((s) => s.hydrated);
   const toasts = useApp((s) => s.toasts);
   const dismiss = useApp((s) => s.dismissToast);

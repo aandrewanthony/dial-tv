@@ -24,12 +24,15 @@ import { isFavorite, toggleFavorite, useOrganized } from '../components/channels
 import { GroupManager } from '../components/channels/GroupManager';
 import { GroupPicker } from '../components/channels/GroupPicker';
 import { GuideDataPanel, GuideMappingPanel } from './GuideSettings';
+import { RemoteSettings } from './RemoteSettings';
 
-type Tab = 'sources' | 'channels' | 'mapping' | 'playback' | 'sports' | 'parental' | 'appearance' | 'backup';
+type Tab = 'sources' | 'channels' | 'mapping' | 'playback' | 'sports' | 'parental' | 'remote' | 'appearance' | 'backup';
 const TABS: [Tab, string][] = [
   ['sources', 'Sources'], ['channels', 'Channels'], ['mapping', 'Mapping'], ['playback', 'Playback'], ['sports', 'Sports & alerts'],
-  ['parental', 'Parental'], ['appearance', 'Appearance'], ['backup', 'Backup'],
+  ['parental', 'Parental'], ['remote', 'Remote'], ['appearance', 'Appearance'], ['backup', 'Backup'],
 ];
+/** Remote Control needs the desktop shell (it runs a LAN server). */
+const tabsHere = (): [Tab, string][] => (isDesktop() ? TABS : TABS.filter(([t]) => t !== 'remote'));
 
 const reload = () => setTimeout(() => void useApp.getState().loadSources(), 0);
 const setSettings = (p: Partial<Settings>) => useApp.getState().update((st) => ({ settings: { ...st.settings, ...p } }));
@@ -40,11 +43,12 @@ const useOrdered = (includeHidden = false) => {
 
 export default function SettingsPage() {
   const { param } = useRoute();
-  const tab = (TABS.some(([t]) => t === param) ? param : 'sources') as Tab;
+  const tabs = tabsHere();
+  const tab = (tabs.some(([t]) => t === param) ? param : 'sources') as Tab;
   return (
     <div className="settingsPage">
       <div className="chips tabs">
-        {TABS.map(([t, l]) => <button key={t} className={tab === t ? 'on' : ''} onClick={() => navigate('settings', t)}>{l}</button>)}
+        {tabs.map(([t, l]) => <button key={t} className={tab === t ? 'on' : ''} onClick={() => navigate('settings', t)}>{l}</button>)}
       </div>
       {tab === 'sources' && <Sources />}
       {tab === 'channels' && <Channels />}
@@ -52,6 +56,7 @@ export default function SettingsPage() {
       {tab === 'playback' && <Playback />}
       {tab === 'sports' && <SportsSettings />}
       {tab === 'parental' && <Parental />}
+      {tab === 'remote' && <RemoteSettings />}
       {tab === 'appearance' && <Appearance />}
       {tab === 'backup' && <Backup />}
     </div>
