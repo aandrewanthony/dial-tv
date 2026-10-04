@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, CalendarDays, CalendarClock, Clapperboard, Gamepad2, Grid2x2, Home, ListVideo, Lock, Radio, Search, Settings, Shield, Ticket, Trophy, Tv, X, Flame, Bell, Zap,
+  AlertTriangle, CircleDot, CalendarDays, CalendarClock, Clapperboard, Gamepad2, Grid2x2, Home, ListVideo, Lock, Radio, Search, Settings, Shield, Ticket, Trophy, Tv, X, Flame, Bell, Zap,
 } from 'lucide-react';
 import { navigate, sectionOf, useRoute, type Route, type Section } from './router';
 import { lockedSet, orderedChannels, sha256, showScore, useApp } from '../store/app';
 import { useEngine } from '../hooks/useEngine';
+import { dvrBridge, initDvr, useDvr } from '../lib/dvr';
 import { SearchPalette } from '../components/SearchPalette';
 import { Modal } from '../components/ui';
 import { clutchInfo } from '../lib/sports';
@@ -22,12 +23,14 @@ const TeamsPage = lazy(() => import('../pages/TeamsPage'));
 const MultiviewPage = lazy(() => import('../pages/MultiviewPage'));
 const SchedulePage = lazy(() => import('../pages/SchedulePage'));
 const SettingsPage = lazy(() => import('../pages/SettingsPage'));
+const RecordingsPage = lazy(() => import('../pages/RecordingsPage'));
 
 const NAV: Record<Section, [Route, typeof Tv, string][]> = {
   tv: [
     ['watch', Tv, 'Live TV'],
     ['guide', CalendarDays, 'Guide'],
     ['movies', Clapperboard, 'Movies & Series'],
+    ['recordings', CircleDot, 'Recordings'],
     ['channels', ListVideo, 'My Channels'],
     ['multiview', Grid2x2, 'Multiview'],
   ],
@@ -52,6 +55,7 @@ const TITLES: Record<Route, [string, string]> = {
   fantasy: ['FANTASY', 'Fantasy Live'],
   bets: ['SPORTSBOOKS', 'Bets & Odds'],
   movies: ['ON DEMAND', 'Movies & Series'],
+  recordings: ['DVR', 'Recordings'],
   channels: ['CABLE MODE', 'My Channels'],
   teams: ['FAVORITES', 'My Teams'],
   multiview: ['2×2', 'Multiview'],
@@ -61,6 +65,7 @@ const TITLES: Record<Route, [string, string]> = {
 
 export default function App() {
   useEngine();
+  useEffect(() => initDvr(), []);
   const { route } = useRoute();
   const hydrated = useApp((s) => s.hydrated);
   const toasts = useApp((s) => s.toasts);
@@ -71,15 +76,22 @@ export default function App() {
   const theater = useApp((s) => s.theater);
   // Store may expose a storage failure (IndexedDB unreadable); typed loosely so this works either way.
   const storageError = useApp((s) => (s as { storageError?: string }).storageError);
+  const recCount = useDvr((s) => s.recordings.filter((r) => r.status === 'recording').length);
   const liveCount = useApp((s) => Object.values(s.games).filter((g) => g.state === 'in').length);
 
   // First-run sports onboarding: shown on Game Day (the Sports landing page) until done or skipped.
   const onboarding = useOnboardingGate(route);
   useGlobalKeys(route);
 
+  const theme = useApp((s) => s.settings.theme);
+  const resolved = useResolvedTheme(theme);
   useEffect(() => {
-    document.documentElement.style.setProperty('--accent', accent);
-  }, [accent]);
+    const root = document.documentElement;
+    root.dataset.theme = resolved;
+    try { localStorage.setItem('dialtv.theme', resolved); } catch { /* pre-paint hint only */ }
+    // A near-white accent disappears on the light theme; use near-black there instead.
+    root.style.setProperty('--accent', resolved === 'light' && isPale(accent) ? '#15181e' : accent);
+  }, [accent, resolved]);
 
   const [eyebrow, title] = TITLES[route];
   // Remember which section you were in when on a shared page (Schedule / Settings).
@@ -94,10 +106,11 @@ export default function App() {
           <button role="tab" aria-selected={section === 'tv'} className={section === 'tv' ? 'on' : ''} onClick={() => navigate('watch')}><Tv /> TV</button>
           <button role="tab" aria-selected={section === 'sports'} className={section === 'sports' ? 'on' : ''} onClick={() => navigate('home')}><Trophy /> Sports</button>
         </div>
-        {[...NAV[section], ...SHARED_NAV].map(([id, Icon, label], i) => (
+        {[...NAV[section].filter(([id]) => id !== 'recordings' || dvrBridge()), ...SHARED_NAV].map(([id, Icon, label], i) => (
           <button key={id} className={`${route === id ? 'active' : ''} ${i === NAV[section].length ? 'navGap' : ''}`} onClick={() => navigate(id)}>
             <Icon />{label}
             {id === 'sports' && liveCount > 0 && <em className="badge">{liveCount}</em>}
+            {id === 'recordings' && recCount > 0 && <em className="badge" title="Recording now">● {recCount}</em>}
           </button>
         ))}
         <div className="navBottom">
@@ -122,6 +135,7 @@ export default function App() {
             {route === 'fantasy' && <FantasyPage />}
             {route === 'bets' && <BetsPage />}
             {route === 'movies' && <MoviesPage />}
+            {route === 'recordings' && <RecordingsPage />}
             {route === 'channels' && <ChannelsPage />}
             {route === 'teams' && <TeamsPage />}
             {route === 'multiview' && <MultiviewPage />}
@@ -265,4 +279,26 @@ function LockGate() {
       </form>
     </Modal>
   );
+}
+
+/** The theme to show: the setting, or the operating system's preference for "system". */
+function useResolvedTheme(theme: 'dark' | 'light' | 'system'): 'dark' | 'light' {
+  const query = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: light)') : undefined;
+  const [osLight, setOsLight] = useState(() => !!query?.matches);
+  useEffect(() => {
+    if (!query) return;
+    const on = () => setOsLight(query.matches);
+    query.addEventListener?.('change', on);
+    return () => query.removeEventListener?.('change', on);
+  }, [query?.media]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (theme === 'system') return osLight ? 'light' : 'dark';
+  return theme ?? 'dark';
+}
+
+/** Very light colour (e.g. the white accent swatch). */
+function isPale(hex: string) {
+  const m = /^#([0-9a-f]{6})/i.exec(hex);
+  if (!m) return false;
+  const n = parseInt(m[1], 16);
+  return ((n >> 16) & 255) * 0.299 + ((n >> 8) & 255) * 0.587 + (n & 255) * 0.114 > 200;
 }

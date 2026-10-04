@@ -5,6 +5,7 @@
  */
 import type { Channel } from '../types';
 import { cleanHeaderValue } from './url';
+import type { DvrBridge } from './dvr';
 
 export type HeaderMap = Record<string, string>;
 
@@ -14,6 +15,8 @@ export interface DesktopBridge {
   version(): Promise<string>;
   /** Register request headers the shell adds to this stream's requests (and same-host segments). */
   setStreamHeaders?(url: string, headers: HeaderMap): Promise<boolean>;
+  /** DVR (electron/dvr.cjs). */
+  dvr?: DvrBridge;
   decoder?: {
     info(): Promise<DecoderInfo>;
     probe(url: string, headers?: HeaderMap): Promise<StreamInfo | null>;

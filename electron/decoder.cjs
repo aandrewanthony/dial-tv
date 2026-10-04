@@ -488,6 +488,6 @@ function start(app, ipcMain) {
 }
 
 module.exports = {
-  start, probe, transcodeArgs, inputArgs, sanitizeOptions, videoEncoderArgs, detectHwEncoder, rateFor, DEFAULT_OPTS, HW_CANDIDATES, parseProbe, parseHttpStatus, needsVideoTranscode,
+  start, probe, ffmpegPath, transcodeArgs, inputArgs, sanitizeOptions, videoEncoderArgs, detectHwEncoder, rateFor, DEFAULT_OPTS, HW_CANDIDATES, parseProbe, parseHttpStatus, needsVideoTranscode,
   normalizeSource, splitHeaders, cleanHeader, redactUrl, redactText, PROTOCOL_WHITELIST, VLC_UA,
 };

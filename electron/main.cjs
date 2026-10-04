@@ -1,11 +1,12 @@
 // Dial TV desktop shell (Electron). Loads the built web app from dist/ and gives it
 // what a browser can't: access to IPTV hosts that don't send CORS headers.
-const { app, BrowserWindow, ipcMain, session, shell, Menu, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell, Menu, safeStorage, dialog, Notification } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const decoder = require('./decoder.cjs');
 const installer = require('./installer.cjs');
+const dvr = require('./dvr.cjs');
 const { cleanHeader, VLC_UA } = decoder;
 
 const isDev = !app.isPackaged && process.env.DIAL_DEV_URL;
@@ -198,6 +199,19 @@ ipcMain.handle('dial:secret-set', (e, name, value) => {
   return true;
 });
 
+// DVR (electron/dvr.cjs): records with the bundled ffmpeg; changes are pushed to the window.
+function startDvr() {
+  const rec = dvr.create({
+    app, ipcMain, shell, safeStorage, dialog,
+    ffmpegBin: decoder.ffmpegPath(app),
+    inputArgs: decoder.inputArgs,
+    redactText: decoder.redactText,
+    isAppSender: (e) => appContents.has(e.sender.id),
+    notify: (title, body) => { try { if (Notification.isSupported()) new Notification({ title, body, silent: true }).show(); } catch { /* optional */ } },
+  });
+  rec.subscribe((snap) => { if (win && !win.isDestroyed()) win.webContents.send('dvr:changed', snap); });
+}
+
 // Single instance: a second launch focuses the existing window.
 const gotLock = app.requestSingleInstanceLock();
 app.on('second-instance', () => {
@@ -216,6 +230,7 @@ app.whenReady().then(async () => {
   if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
   allowCrossOrigin();
   decoder.start(app, ipcMain);
+  startDvr();
   createWindow();
   app.on('activate', () => { if (!win) createWindow(); });
 });

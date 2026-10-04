@@ -8,3 +8,4 @@ public/__test
 release
 tests/streamlab/media
 vendor
+.claude/worktrees

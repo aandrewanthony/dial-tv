@@ -380,9 +380,13 @@ const ACCENTS = ['#ff4d4d', '#ff8a1f', '#f5c518', '#2ecc71', '#1fb6ff', '#7c5cff
 function Appearance() {
   const density = useApp((s) => s.settings.density);
   const accent = useApp((s) => s.settings.accent);
+  const theme = useApp((s) => s.settings.theme);
   return (
     <section className="panel">
       <h2>Appearance</h2>
+      <div className="setting"><div><b>Theme</b><span>Light, dark, or match your computer</span></div>
+        <div className="chips">{(['dark', 'light', 'system'] as const).map((t) => <button key={t} className={theme === t ? 'on' : ''} aria-pressed={theme === t} onClick={() => setSettings({ theme: t })}>{t === 'system' ? 'match computer' : t}</button>)}</div>
+      </div>
       <div className="setting"><div><b>Density</b><span>Compact fits more rows in the guide and lists</span></div>
         <div className="chips">{(['comfortable', 'compact'] as const).map((d) => <button key={d} className={density === d ? 'on' : ''} onClick={() => setSettings({ density: d })}>{d}</button>)}</div>
       </div>

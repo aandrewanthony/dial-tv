@@ -22,6 +22,8 @@ export interface ChannelPrefs extends OrgPrefs {
   railCollapsed: boolean;
   /** Last group selected in the Live TV rail. */
   railGroup: string;
+  /** Rail folds the user opened/closed: country code (or '~sports') → open. Unset = default. */
+  railFolds: Record<string, boolean>;
 }
 
 export const DEFAULT_CHANNEL_PREFS: ChannelPrefs = {
@@ -35,6 +37,7 @@ export const DEFAULT_CHANNEL_PREFS: ChannelPrefs = {
   pickedSources: [],
   railCollapsed: false,
   railGroup: 'all',
+  railFolds: {},
 };
 
 export const useChannelPrefs = createPersisted<ChannelPrefs>({

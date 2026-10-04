@@ -11,6 +11,22 @@ contextBridge.exposeInMainWorld('dialDesktop', {
   version: () => ipcRenderer.invoke('dial:version'),
   // Headers the shell adds to this stream's requests (playlist UA/Referer/Origin/Cookie, Basic auth).
   setStreamHeaders: (url, headers) => ipcRenderer.invoke('dial:stream-headers', String(url), headers ?? {}),
+  // DVR: schedule/stop/remove recordings; the shell keeps the stream links (see electron/dvr.cjs).
+  dvr: {
+    list: () => ipcRenderer.invoke('dvr:list'),
+    schedule: (job) => ipcRenderer.invoke('dvr:schedule', job),
+    stop: (id) => ipcRenderer.invoke('dvr:stop', String(id)),
+    remove: (id) => ipcRenderer.invoke('dvr:remove', String(id)),
+    playUrl: (id) => ipcRenderer.invoke('dvr:play-url', String(id)),
+    reveal: (id) => ipcRenderer.invoke('dvr:reveal', id == null ? null : String(id)),
+    settings: (patch) => ipcRenderer.invoke('dvr:settings', patch ?? null),
+    chooseFolder: () => ipcRenderer.invoke('dvr:choose-folder'),
+    onChange: (fn) => {
+      const h = (_e, snap) => fn(snap);
+      ipcRenderer.on('dvr:changed', h);
+      return () => ipcRenderer.removeListener('dvr:changed', h);
+    },
+  },
   decoder: {
     info: () => ipcRenderer.invoke('dial:decoder-info'),
     probe: (url, headers) => ipcRenderer.invoke('dial:probe', String(url), headers ?? {}),

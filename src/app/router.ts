@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react';
 
 export type Route =
   // TV
-  | 'watch' | 'guide' | 'movies' | 'channels' | 'multiview'
+  | 'watch' | 'guide' | 'movies' | 'recordings' | 'channels' | 'multiview'
   // Sports
   | 'home' | 'sports' | 'teams' | 'fantasy' | 'bets'
   // Shared
   | 'schedule' | 'settings';
-export const ROUTES: Route[] = ['watch', 'guide', 'movies', 'channels', 'multiview', 'home', 'sports', 'teams', 'fantasy', 'bets', 'schedule', 'settings'];
+export const ROUTES: Route[] = ['watch', 'guide', 'movies', 'recordings', 'channels', 'multiview', 'home', 'sports', 'teams', 'fantasy', 'bets', 'schedule', 'settings'];
 export type Section = 'tv' | 'sports';
-export const TV_ROUTES: Route[] = ['watch', 'guide', 'movies', 'channels', 'multiview'];
+export const TV_ROUTES: Route[] = ['watch', 'guide', 'movies', 'recordings', 'channels', 'multiview'];
 export const SPORTS_ROUTES: Route[] = ['home', 'sports', 'teams', 'fantasy', 'bets'];
 export const sectionOf = (r: Route): Section | null => (TV_ROUTES.includes(r) ? 'tv' : SPORTS_ROUTES.includes(r) ? 'sports' : null);
 

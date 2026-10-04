@@ -20,6 +20,8 @@ export interface Settings {
   spoilerShield: boolean;
   revealed: string[];
   density: 'comfortable' | 'compact';
+  /** Dark, light, or follow the operating system. */
+  theme: 'dark' | 'light' | 'system';
   accent: string;
   guideZoom: 30 | 60 | 120;
   /** SHA-256 hex of the parental PIN. */
@@ -162,6 +164,7 @@ export const DEFAULT_SETTINGS: Settings = {
   spoilerShield: false,
   revealed: [],
   density: 'comfortable',
+  theme: 'dark',
   accent: '#ff4d4d',
   guideZoom: 60,
   locked: [],

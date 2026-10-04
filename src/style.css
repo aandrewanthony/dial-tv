@@ -960,15 +960,26 @@ button.small, .ghost.small { padding: 5px 9px; font-size: 11.5px; }
 .sugBtn { cursor: pointer; border: 1px dashed var(--warn); background: none; }
 
 /* ---------- Channels: organized Live TV lineup (rail + virtualized list), menus, group picker/manager ---------- */
-.lineup { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 14px; margin-top: 18px; height: min(72vh, 760px); min-height: 380px; }
+.lineup { display: grid; grid-template-columns: 212px minmax(0, 1fr); gap: 14px; margin-top: 18px; height: min(72vh, 760px); min-height: 380px; }
 .lineup.railCollapsed { grid-template-columns: 40px minmax(0, 1fr); }
 .app.theater .lineup { display: none; }
 .groupRail { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.railHead { display: flex; align-items: center; gap: 2px; padding: 10px 8px 8px 14px; border-bottom: 1px solid var(--line); }
+.railHead { display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--line); }
 .railHead > span { flex: 1; font: 700 10px var(--mono); letter-spacing: .12em; color: var(--muted); }
-.railList { overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 1px; scrollbar-width: thin; }
-.railSection { font: 700 9.5px var(--mono); letter-spacing: .12em; color: var(--dim); padding: 12px 8px 4px; }
-.railItem { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: none; color: #aeb4c0; text-align: left; padding: 7px 8px; border-radius: 7px; font-size: 12.5px; font-weight: 600; border-left: 2px solid transparent; }
+.railList { overflow-y: auto; padding: 4px 5px 8px; display: flex; flex-direction: column; gap: 0; scrollbar-width: thin; }
+.railSection { font: 700 9px var(--mono); letter-spacing: .12em; color: var(--dim); padding: 9px 7px 3px; }
+button.railSection.fold { width: 100%; display: flex; align-items: center; justify-content: space-between; border: 0; background: none; text-align: left; cursor: pointer; }
+button.railSection.fold:hover { color: var(--muted); }
+button.railSection.fold svg { width: 11px; height: 11px; }
+.railItem { width: 100%; display: flex; align-items: center; gap: 7px; border: 0; background: none; color: #aeb4c0; text-align: left; padding: 4px 7px; min-height: 26px; border-radius: 6px; font-size: 12px; font-weight: 600; border-left: 2px solid transparent; }
+.railItem.child { padding-left: 27px; font-weight: 500; }
+.railItem.dim { opacity: .38; cursor: default; }
+.railItem.dim:hover { background: none; color: #aeb4c0; }
+.railFold { color: var(--text); }
+.railFold svg { width: 12px !important; height: 12px !important; }
+.railFold .ccBadge { margin: 0; }
+.railEmoji { width: 14px; text-align: center; font-size: 12.5px; line-height: 1; flex: none; filter: saturate(.9); }
+.railLive { font: 700 9px var(--mono); color: #fff; background: var(--accent); border-radius: 8px; padding: 0 5px; line-height: 14px; }
 .railItem:hover { background: #161b24; color: var(--text); }
 .railItem.on { background: #1a202b; color: var(--text); border-left-color: var(--accent); }
 .railItem svg { width: 14px; height: 14px; color: var(--muted); }
@@ -1078,3 +1089,41 @@ button.ghost.tiny { padding: 3px 8px; font-size: 10.5px; }
 .guidePage .gRowEmpty .gNoList { position: sticky; left: 202px; transform: none; top: auto; margin-left: 12px; }
 .guidePage .grid { contain: strict; }
 .guidePage .gRow { contain: layout style; }
+
+/* ---------- DVR: Record button, Recordings page ---------- */
+button.recBtn svg { color: var(--accent); }
+button.recBtn.set { border-color: var(--accent); }
+button.recBtn.on { background: var(--accent); border-color: var(--accent); color: #fff; animation: recPulse 2s ease-in-out infinite; }
+button.recBtn.on svg { color: #fff; fill: #fff; }
+@keyframes recPulse { 50% { opacity: .82; } }
+.recPage { display: flex; flex-direction: column; gap: 18px; max-width: 1100px; }
+.recPlayer { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.recPlayerHead { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+.recPlayerHead > div { flex: 1; min-width: 0; }
+.recPlayerHead small { display: block; font-size: 11.5px; }
+.recPlayer .screen { aspect-ratio: 16 / 9; background: #000; }
+.recSettings { display: flex; flex-direction: column; gap: 10px; padding: 14px 18px; }
+.recSettings p { margin: 0; }
+.recFolder { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.recFolder code { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recOpts { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; }
+.recOpts label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.recOpts .chips button { min-width: 32px; justify-content: center; }
+.recOpts select.field.small { flex: none; width: 90px; }
+.recH { font: 700 10px var(--mono); letter-spacing: .16em; color: var(--muted); text-transform: uppercase; margin: 0 0 8px; }
+.recH small { color: var(--dim); letter-spacing: .04em; margin-left: 6px; }
+.recList { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.recList.dimList { opacity: .75; }
+.recRow { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.recRow:last-child { border-bottom: 0; }
+.recInfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.recInfo b { font-size: 13.5px; }
+.recInfo small { font-size: 11.5px; color: var(--muted); }
+.recInfo .bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 4px; max-width: 360px; }
+.recInfo .bar i { display: block; height: 100%; background: var(--accent); }
+.warnTxt { color: var(--warn) !important; }
+.recIcon { color: var(--dim); }
+.recDot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: none; margin: 0 3px; animation: recPulse 1.4s ease-in-out infinite; }
+button.recPlay { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line2); background: var(--panel2); color: var(--text); display: grid; place-items: center; padding: 0; flex: none; }
+button.recPlay:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.recPlay svg { width: 14px; height: 14px; margin-left: 2px; }
