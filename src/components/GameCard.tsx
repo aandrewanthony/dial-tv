@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { CalendarPlus, Check, Eye, Flame, Play, Star, Tv } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Activity, CalendarPlus, Check, Eye, Flame, Play, Star, Tv } from 'lucide-react';
 import type { SportEvent } from '../types';
 import { useApp, showScore } from '../store/app';
 import { matchBroadcasts } from '../lib/channelMatch';
@@ -8,6 +8,7 @@ import { entryFromGame } from '../lib/scheduler';
 import { TeamLogo, fmtDay, fmtTime } from './ui';
 import type { GameStakes } from '../store/fantasy';
 import { navigate } from '../app/router';
+import { WinProbPanel, wpUnavailable } from './WinProbability';
 
 export function useGameChannel(g: SportEvent) {
   const channels = useApp((s) => s.channels);
@@ -25,6 +26,9 @@ export function GameCard({ g, stakes, compact }: { g: SportEvent; stakes?: GameS
   const update = useApp((s) => s.update);
   const clutch = clutchInfo(g);
   const possession = g.situation?.possessionTeamId;
+  const [wpOpen, setWpOpen] = useState(false);
+  // Win probability: live/final games only, never through the spoiler shield, not on compact tiles.
+  const wpAllowed = !compact && visible && g.state !== 'pre' && !g.postponed && !g.canceled;
 
   const watch = () => {
     if (!match) return;
@@ -90,6 +94,7 @@ export function GameCard({ g, stakes, compact }: { g: SportEvent; stakes?: GameS
           {stakes.theirs.length > 0 && <span className="theirs">Opp: {stakes.theirs.map((p) => p.name.split(' ').slice(-1)[0]).join(', ')}</span>}
         </div>
       )}
+      {wpAllowed && wpOpen && <WinProbPanel g={g} />}
       {!compact && g.odds && g.state === 'pre' && (
         <div className="oddsLine">
           <span>{g.away.abbr} {fmtLine(spreadFor(g, g.away.abbr))}</span>
@@ -101,6 +106,9 @@ export function GameCard({ g, stakes, compact }: { g: SportEvent; stakes?: GameS
         <span className="net" title={g.broadcasts.join(', ')}><Tv />{g.broadcasts[0] ?? 'TBD'}</span>
         {!visible && g.state !== 'pre' && (
           <button className="ghost" onClick={() => update((s) => ({ settings: { ...s.settings, revealed: [...s.settings.revealed, g.id] } }))}><Eye /> Reveal</button>
+        )}
+        {wpAllowed && (wpOpen || !wpUnavailable(g)) && (
+          <button className={`ghost ${wpOpen ? 'on' : ''}`} onClick={() => setWpOpen((v) => !v)} title={wpOpen ? 'Hide win probability' : 'Win probability'} aria-label="Win probability" aria-pressed={wpOpen}><Activity /></button>
         )}
         <button className="ghost" onClick={toggleSchedule} title={scheduled ? 'Remove from schedule' : 'Add to schedule'}>{scheduled ? <Check /> : <CalendarPlus />}</button>
         {g.state !== 'post' && (

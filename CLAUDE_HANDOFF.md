@@ -43,15 +43,15 @@ Favorites, reorder/hide (dnd), global search, sports hub with live/upcoming/fina
 - Sports: Bets (providers/oddsapi.ts, store/bets.ts, components/sports/*), onboarding + My Teams, ESPN Fantasy (public leagues) + Sleeper, Smart Schedule planner (lib/scheduler.ts) with auto-tune. Pick'em removed (schema v5).
 - Feature stores use store/persisted.ts; API keys use lib/secrets.ts (safeStorage on desktop).
 - Stream lab: tests/streamlab/check.mjs plays movie files through Movies & Series; buffer.mjs measures stalls on simulated bad networks (/net/jitter, /net/slow); vod.mjs tests VOD seek/startAt.
+- Win probability: GameCard has a toggle (live/final, non-compact, not behind the spoiler shield) that opens components/WinProbability.tsx: lazy ESPN summary fetch, per-game cache, 60 s refresh while live, inline SVG (lib/winProb.ts). Games ESPN has no data for hide the toggle.
+- Unit tests: tests/unit/playback-tuning.test.ts (player/tuning.ts) and playback-decoder-args.test.ts (decoder sanitizeOptions / videoEncoderArgs / transcodeArgs).
 
 ## Not done / next
 - Phase 2: a Dial TV-hosted fantasy league (needs a server and accounts; the owner wants it).
 - Private ESPN fantasy leagues (espn_s2 / SWID cookies via the desktop shell).
 - HLS buffering on jittery networks is not improved yet (the lab's HLS channel also throws a Chromium decode error in the baseline).
-- Unit tests for player/tuning.ts and decoder argument generation.
 - **Remote Control mode** (phone → desktop over LAN WebSocket with pairing). Add a small WebSocket server in `electron/main.cjs` + a `/remote` route.
 - **Multiple fantasy platforms** (ESPN private leagues need cookies; Yahoo needs OAuth — do via a server-side or Electron safeStorage token store, never localStorage).
-- **Win probability chart** — `providers/espn.ts#winProbability` is implemented but not yet charted on the game card.
 - **Xtream Codes login** as a source type (player_api.php) — today use the provider's M3U URL.
 - **Personal Linear Channel** (local/VOD pseudo-channel) from the original backlog.
 - **Code signing:** Windows cert, and Apple Developer ID + notarization (steps in BUILD.md). Then add electron-updater.

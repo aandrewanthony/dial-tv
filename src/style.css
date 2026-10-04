@@ -1127,3 +1127,24 @@ button.recBtn.on svg { color: #fff; fill: #fff; }
 button.recPlay { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line2); background: var(--panel2); color: var(--text); display: grid; place-items: center; padding: 0; flex: none; }
 button.recPlay:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.recPlay svg { width: 14px; height: 14px; margin-left: 2px; }
+
+/* Win probability (GameCard → components/WinProbability.tsx). Theme colors only, so light themes work. */
+.gcFoot button.ghost.on { color: var(--accent); border-color: var(--accent); }
+.wpPanel { border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px 8px; display: flex; flex-direction: column; gap: 5px; }
+.wpHead { display: flex; align-items: baseline; gap: 8px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.wpHead em { font-style: normal; font-weight: 500; letter-spacing: 0; text-transform: none; margin-left: auto; color: var(--dim, var(--muted)); }
+.wpEmpty { font-size: 12px; color: var(--muted); padding: 4px 0; }
+.wpChart { display: flex; align-items: center; gap: 10px; }
+.wpPlot { position: relative; flex: 1; min-width: 0; height: 56px; }
+.wpPlot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.wpFillHome { fill: var(--wp-home); fill-opacity: .28; }
+.wpFillAway { fill: var(--wp-away); fill-opacity: .28; }
+.wpMid { stroke: var(--line2, var(--line)); stroke-width: 1; stroke-dasharray: 3 3; }
+.wpLine { fill: none; stroke: var(--text); stroke-opacity: .85; stroke-width: 1.5; stroke-linejoin: round; }
+.wpDot { position: absolute; right: -3px; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; box-shadow: 0 0 0 2px var(--panel); }
+.wpSide { position: absolute; left: 3px; font: 700 9.5px var(--mono); color: var(--muted); pointer-events: none; }
+.wpSide.home { top: 1px; }
+.wpSide.away { bottom: 1px; }
+.wpNow { display: flex; flex-direction: column; align-items: flex-end; min-width: 50px; line-height: 1.1; }
+.wpNow b { font: 700 18px var(--mono); }
+.wpNow small { font-size: 11px; color: var(--muted); }
