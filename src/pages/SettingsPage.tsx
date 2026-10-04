@@ -311,6 +311,15 @@ function Playback() {
           <div><b>Resume movies &amp; episodes</b><span>Continue where you stopped watching.</span></div>
           <Toggle label="Resume movies and episodes" on={pb.resumeVod} onChange={(v) => setPb({ resumeVod: v })} />
         </div>
+        <div className="setting">
+          <div>
+            <b>Pause &amp; rewind live TV</b>
+            <span>{isDesktop()
+              ? 'Keeps the last 30 minutes of the channel you’re watching so you can pause, rewind and jump back to live (←/→ skip). Uses about 1–2 GB of disk in a temporary folder (deleted when you change channel or quit) and one ffmpeg process. Channels that need the built-in decoder, Multiview and movies play as usual.'
+              : 'Available in the Windows and Mac apps.'}</span>
+          </div>
+          {isDesktop() ? <Toggle label="Pause and rewind live TV" on={!!pb.timeshift} onChange={(v) => setPb({ timeshift: v })} /> : <span className="muted small">Desktop only</span>}
+        </div>
       </section>
       <section className="panel">
         <h2>Built-in decoder</h2>

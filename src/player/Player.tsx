@@ -5,14 +5,15 @@ import {
   PictureInPicture2, RotateCw, Volume2, VolumeX,
 } from 'lucide-react';
 import type { Channel } from '../types';
-import { channelHeaders, desktop, isDesktop, type DecoderInfo, type StreamInfo } from '../lib/net';
+import { channelHeaders, desktop, isDesktop, type DecoderInfo, type StreamInfo, type TimeshiftStart } from '../lib/net';
 import { DEFAULT_PLAYBACK, useApp } from '../store/app';
 import { sniffStream, type Engine } from './detect';
 import { isHttpUrl, redactUrl, splitUserinfo } from '../lib/url';
-import { decoderOptions, gateOptions, hlsConfig, hlsGateOptions, levelLimits, machineInfo, mpegtsConfig, type GateOptions } from './tuning';
+import { decoderOptions, gateOptions, hlsConfig, hlsGateOptions, levelLimits, machineInfo, mpegtsConfig, timeshiftHlsConfig, type GateOptions } from './tuning';
 import { bufferedAhead, bufferedEnd, createGate, type Gate } from './gate';
 import VodControls from './VodControls';
 import { holdPlayback, reportStreamOk } from '../lib/deadChecker';
+import LiveDvrBar, { type LiveWindow } from './LiveDvrBar';
 
 export interface PlayerHandle {
   togglePlay(): void;
@@ -60,6 +61,8 @@ interface Props {
   onProgress?: (seconds: number, duration: number) => void;
   /** The movie / episode played to the end. */
   onEnded?: () => void;
+  /** Live TV page: may play through the pause & rewind buffer when Settings → Playback turns it on (desktop). */
+  timeshift?: boolean;
 }
 
 const mse = (t: string) => typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(t);
@@ -88,9 +91,13 @@ const checkDecoder = () =>
 // Streams whose silent-failure check already passed (radio, silent feeds): don't re-check this session.
 const verified = new Set<string>();
 const clientError = (s?: number) => !!s && s >= 400 && s < 500;
+// Streams the pause & rewind buffer can't serve (codecs, not live, failed): play them normally this app run.
+const tsSkip = new Set<string>();
+const tsNewId = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+const TS_START_TIMEOUT = 17_000; // the shell gives up after 15 s; this is the backstop
 type Mode = 'direct' | 'decoder';
 
-const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted: mutedProp, compact, theater, onTheater, overlay, onActivate, vod: vodProp, startAt, onProgress, onEnded }, ref) {
+const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted: mutedProp, compact, theater, onTheater, overlay, onActivate, vod: vodProp, startAt, onProgress, onEnded, timeshift: timeshiftProp }, ref) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -175,6 +182,10 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
   // rtmp/rtsp/udp/... only play through ffmpeg (even if the decoder is off for http streams).
   const needsDecoder = !isHttpUrl(url);
   const mode: Mode = needsDecoder ? 'decoder' : decoderAvailable ? modeState : 'direct';
+  // Pause & rewind: live channels on the Live TV page played directly (decoder channels, Multiview
+  // tiles, movies and personal channels play as usual).
+  const tsOn = !!timeshiftProp && !!pb.timeshift && !vodProp && !compact && ffmpegOk && !!desktop()?.timeshift && mode === 'direct' && !tsSkip.has(url);
+  const [tsActive, setTsActive] = useState(false);
 
   useEffect(() => setMuted(!!mutedProp), [mutedProp]);
 
@@ -202,6 +213,11 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     let vod = !!vodProp;
     let expectVideo: boolean | undefined; // what the engine found in the stream
     let expectAudio: boolean | undefined;
+    // Pause & rewind session for this run (stopped on cleanup), and whether playback goes through it.
+    let tsId: string | null = null;
+    let ts = false;
+    const tsStop = () => { if (tsId) void desktop()?.timeshift?.stop(tsId).catch(() => {}); tsId = null; };
+    setTsActive(false);
     setStatus('loading');
     setError(undefined);
     setLevels([]);
@@ -224,6 +240,13 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     /** Next step after a failure: decoder (once), then the playlist owner's fallback URLs. */
     const fail = (msg: string, httpStatus?: number) => {
       if (cancelled || failed) return;
+      // The pause & rewind buffer failed: play this channel the normal way instead.
+      if (ts) {
+        failed = true;
+        tsSkip.add(url);
+        setAttempt((a) => a + 1);
+        return;
+      }
       // Direct playback failed: try converting before giving up. Even on a 4xx: a 403 is often a
       // browser-UA block that ffmpeg (VLC's UA) gets past; the decoder reports a real 4xx quickly.
       if (useDecoder(false)) return;
@@ -294,6 +317,35 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     v.addEventListener('playing', onPlaying);
     v.addEventListener('loadedmetadata', onMeta);
 
+    // Pause & rewind: ffmpeg copies the channel into a rolling local HLS buffer; only ffmpeg talks to
+    // the provider. Anything unexpected (no ffmpeg, timeout, codecs Chromium can't decode, a movie)
+    // stops the session and this run carries on with normal playback.
+    let tsUrl = '';
+    const startTimeshift = async (): Promise<boolean> => {
+      const bridge = desktop()?.timeshift;
+      if (!bridge) return false;
+      const id = tsNewId();
+      tsId = id;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const r: TimeshiftStart = await Promise.race([
+        bridge.start(id, url, headers).catch((e: unknown): TimeshiftStart => ({ error: String((e as Error)?.message ?? e) })),
+        new Promise<TimeshiftStart>((res) => { timer = setTimeout(() => res({ error: 'timeout' }), TS_START_TIMEOUT); }),
+      ]);
+      clearTimeout(timer);
+      if (cancelled) return false;
+      const info = r.info ?? null;
+      if (info) setStreamInfo(info);
+      if (!r.url || (info && (!!info.duration || !directPlayable(info)))) {
+        tsStop();
+        if (r.error !== 'stopped') tsSkip.add(url);
+        return false;
+      }
+      ts = true;
+      tsUrl = r.url;
+      setTsActive(true);
+      return true;
+    };
+
     const sniff = new AbortController();
     (async () => {
       avail = !!desktop()?.decoder && (await checkDecoder()) && (decoderPref !== 'off' || needsDecoder);
@@ -333,7 +385,12 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
         if (!u) return fail('Built-in decoder is not available');
         playUrl = u;
         kind = 'mpegts';
+      } else if (tsOn && await startTimeshift()) {
+        if (cancelled) return;
+        playUrl = tsUrl;
+        kind = 'hls';
       } else {
+        if (cancelled) return;
         if (isDesktop()) {
           // fetch()/XHR reject user:pass@ URLs: strip them and send Basic auth via the shell's header map,
           // which also applies the playlist UA/Referer/... to every request for this stream.
@@ -364,14 +421,14 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
         seekOnLoad();
       } else if (kind === 'hls') {
         if (!HlsCtor || !HlsCtor.isSupported()) return fail('HLS is not supported in this browser');
-        const hls = new HlsCtor(hlsConfig(pb, { vod, compact, startAt: vod ? startRef.current : 0 }));
+        const hls = new HlsCtor(ts ? timeshiftHlsConfig() : hlsConfig(pb, { vod, compact, startAt: vod ? startRef.current : 0 }));
         hlsRef.current = hls;
         // Live: hold for a little more than a segment at the start and after stalls (see tuning.ts).
-        // Movies and low latency: hls.js handles stalls itself.
-        hlsGate = hlsGateOptions(pb, { vod });
+        // Movies, low latency and the local pause & rewind buffer: hls.js handles stalls itself.
+        hlsGate = ts ? null : hlsGateOptions(pb, { vod });
         if (hlsGate) gate.setOptions(hlsGate); else gate.noRebuffer();
-        engineRef.current = `hls.js ${HlsCtor.version}`;
-        setEngineLabel('hls');
+        engineRef.current = ts ? `hls.js ${HlsCtor.version} · pause & rewind buffer` : `hls.js ${HlsCtor.version}`;
+        setEngineLabel(ts ? 'timeshift' : 'hls');
         const E = HlsCtor.Events;
         hls.on(E.MANIFEST_PARSED, () => {
           setLevels(hls.levels.map((l, i) => ({ id: i, label: l.height ? `${l.height}p${l.bitrate ? ` · ${kbps(l.bitrate)}` : ''}` : kbps(l.bitrate) })));
@@ -426,6 +483,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
         destroy = () => {
           hls.destroy();
           hlsRef.current = null;
+          if (ts) tsStop();
         };
       } else {
         const mpegts = (await import('mpegts.js')).default;
@@ -575,6 +633,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     return () => {
       cancelled = true;
       sniff.abort();
+      tsStop();
       setEngineLabel('');
       clearInterval(watchdog);
       gate.destroy();
@@ -587,7 +646,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
       v.load();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, attempt, mode, tuneKey, seekGen]);
+  }, [url, attempt, mode, tuneKey, seekGen, tsOn]);
 
   // Media element state (the gate's own pause while it waits for the cushion shows as buffering).
   useEffect(() => {
@@ -692,6 +751,58 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     return () => window.removeEventListener('keydown', onKey);
   }, [vodActive, compact, seekBy]);
 
+  // Pause & rewind: the window hls.js sees in the local playlist, on the <video> timeline.
+  const liveWindow = useCallback((): LiveWindow | null => {
+    const h = hlsRef.current;
+    if (!h) return null;
+    const d = h.levels[h.currentLevel >= 0 ? h.currentLevel : 0]?.details;
+    if (!d || !d.fragments.length) return null;
+    const start = d.fragmentStart;
+    const end = d.edge;
+    const live = Math.max(start, Math.min(end, h.liveSyncPosition ?? end - 2 * d.targetduration));
+    // Against the real live edge (playlist edge + the playlist's age), so it keeps counting while paused.
+    const t = videoRef.current?.currentTime ?? live;
+    const behind = Math.max(0, d.edge + (d.age || 0) - t - (h.targetLatency ?? 2 * d.targetduration));
+    return { start, end, live, behind };
+  }, []);
+  const tsSeek = useCallback((target: number) => {
+    const v = videoRef.current;
+    const w = liveWindow();
+    if (!v || !w) return;
+    v.currentTime = Math.max(w.start + 0.5, Math.min(target, w.live));
+  }, [liveWindow]);
+  const tsSeekBy = useCallback((d: number) => { const v = videoRef.current; if (v) tsSeek(v.currentTime + d); }, [tsSeek]);
+  const goLive = useCallback(() => {
+    const v = videoRef.current;
+    const w = liveWindow();
+    if (!v || !w) return;
+    v.currentTime = w.live;
+    if (v.paused) v.play().catch(() => {});
+  }, [liveWindow]);
+  const tsPosition = useCallback(() => videoRef.current?.currentTime ?? 0, []);
+
+  useEffect(() => {
+    if (!tsActive || compact) return;
+    // ← back 10 s, → forward 30 s (like the bar's buttons), unless typing, a dialog or the guide is open.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const t = e.target as HTMLElement;
+      if (e.ctrlKey || e.metaKey || e.altKey || t?.closest?.('input, textarea, select, [contenteditable=true]')) return;
+      if (document.querySelector('.scrim, [role=dialog], .tvGuide')) return;
+      e.preventDefault();
+      tsSeekBy(e.key === 'ArrowLeft' ? -10 : 30);
+    };
+    window.addEventListener('keydown', onKey);
+    // Paused longer than the window: the oldest video is gone, so continue from the oldest that's left.
+    const v = videoRef.current;
+    const guard = setInterval(() => {
+      const w = liveWindow();
+      if (!v || !w || v.paused || v.seeking) return;
+      if (v.currentTime < w.start - 0.5 && bufferedAhead(v) < 0.5) v.currentTime = w.start + 1;
+    }, 1000);
+    return () => { window.removeEventListener('keydown', onKey); clearInterval(guard); };
+  }, [tsActive, compact, tsSeekBy, liveWindow]);
+
   // Live latency / cushion readout (Stream Health, and data-latency for the buffering lab).
   const latencyNow = useCallback((): number | null => {
     const v = videoRef.current;
@@ -781,9 +892,9 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
     fullscreen,
     pip,
     toggleStats: () => setShowStats((s) => !s),
-    seek,
-    seekBy,
-  }), [togglePlay, fullscreen, pip, seek, seekBy]);
+    seek: tsActive ? tsSeek : seek,
+    seekBy: tsActive ? tsSeekBy : seekBy,
+  }), [togglePlay, fullscreen, pip, seek, seekBy, tsActive, tsSeek, tsSeekBy]);
 
   const retry = () => {
     setUrlIndex(0);
@@ -807,6 +918,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
       data-mode={mode}
       data-status={status}
       data-vod={vodActive ? '1' : undefined}
+      data-timeshift={tsActive ? '1' : undefined}
       onMouseMove={() => setChrome(true)}
       onClick={onActivate}
     >
@@ -831,6 +943,9 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
       )}
       {vodActive && !compact && (
         <VodControls position={position} buffered={bufferedRanges} duration={duration} paused={status === 'paused'} onSeek={seek} onSkip={seekBy} onToggle={togglePlay} />
+      )}
+      {tsActive && !compact && !vodActive && (
+        <LiveDvrBar window={liveWindow} position={tsPosition} paused={status === 'paused'} onSeek={tsSeek} onSkip={tsSeekBy} onLive={goLive} onToggle={togglePlay} />
       )}
       {!compact && (
         <div className="controls" onClick={(e) => e.stopPropagation()}>

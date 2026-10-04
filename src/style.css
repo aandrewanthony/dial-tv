@@ -1227,3 +1227,10 @@ button.redZoneBtn.on svg { color: #111; fill: #111; }
 .deadBar p { margin: 0; flex: 1; line-height: 1.45; }
 .deadBar button { flex: none; }
 .deadActions { justify-content: flex-end; gap: 8px; padding-bottom: 10px; }
+/* ---- Pause & rewind live TV (player/LiveDvrBar.tsx) ---- */
+.liveDvr .liveBehind { font: 600 12px/1 var(--mono); color: #ddd; white-space: nowrap; min-width: 52px; text-align: center; }
+.liveDvr .liveBehind.at { color: var(--accent); }
+.liveDvr .vodBtns button:disabled { opacity: .35; cursor: default; background: none; }
+.liveDvr .vodBtns .liveBtn { font: 700 11px/1 var(--mono); letter-spacing: .04em; padding: 6px 8px; border: 1px solid #ffffff40; color: #ddd; }
+.liveDvr .vodBtns .liveBtn.on { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 600px) { .liveDvr .vodBtns button:first-child, .liveDvr .vodBtns button:last-child { display: grid; } .liveDvr .liveBehind { display: none; } }

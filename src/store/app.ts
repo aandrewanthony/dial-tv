@@ -63,6 +63,8 @@ export interface PlaybackSettings {
   deinterlace: 'auto' | 'on' | 'off';
   /** Remember where you stopped in movies/episodes. */
   resumeVod: boolean;
+  /** Desktop: play live channels through a 30-minute rolling buffer on disk (pause & rewind). */
+  timeshift?: boolean;
 }
 
 export const DEFAULT_PLAYBACK: PlaybackSettings = {
@@ -73,6 +75,7 @@ export const DEFAULT_PLAYBACK: PlaybackSettings = {
   startQuality: 'auto',
   deinterlace: 'auto',
   resumeVod: true,
+  timeshift: false,
 };
 
 /** Fantasy platforms. Phase 2 seam: a Dial TV-hosted league would be another provider id here (see store/fantasy.ts). */

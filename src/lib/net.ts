@@ -25,7 +25,17 @@ export interface DesktopBridge {
     /** Codecs found by the decoder server's own probe (no extra connection). */
     infoFor?(src: string): Promise<StreamInfo | null>;
   };
+  /** Pause & rewind live TV (electron/timeshift.cjs). One session at a time; a new start stops the old one. */
+  timeshift?: {
+    /** Resolves once the first segments are on disk: the local playlist URL, or { error } (then play normally). */
+    start(id: string, url: string, headers?: HeaderMap): Promise<TimeshiftStart>;
+    stop(id: string): Promise<boolean>;
+  };
 }
+
+export type TimeshiftStart =
+  | { url: string; info: StreamInfo | null; windowSecs: number; error?: undefined }
+  | { error: string; info?: StreamInfo | null; url?: undefined };
 
 /** What the desktop decoder can do on this machine. */
 export interface DecoderInfo {

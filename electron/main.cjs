@@ -7,6 +7,7 @@ const { pathToFileURL } = require('node:url');
 const decoder = require('./decoder.cjs');
 const installer = require('./installer.cjs');
 const dvr = require('./dvr.cjs');
+const timeshift = require('./timeshift.cjs');
 const espnAuth = require('./espnAuth.cjs');
 const remote = require('./remoteMain.cjs');
 const { cleanHeader, VLC_UA } = decoder;
@@ -246,6 +247,19 @@ function startDvr() {
   rec.subscribe((snap) => { if (win && !win.isDestroyed()) win.webContents.send('dvr:changed', snap); });
 }
 
+// Pause & rewind live TV (electron/timeshift.cjs): one rolling ffmpeg HLS buffer at a time.
+function startTimeshift() {
+  timeshift.create({
+    app, ipcMain,
+    ffmpegBin: decoder.ffmpegPath(app),
+    inputArgs: decoder.inputArgs,
+    normalizeSource: decoder.normalizeSource,
+    parseProbe: decoder.parseProbe,
+    redactText: decoder.redactText,
+    isAppSender: (e) => appContents.has(e.sender.id),
+  });
+}
+
 // Single instance: a second launch focuses the existing window.
 const gotLock = app.requestSingleInstanceLock();
 app.on('second-instance', () => {
@@ -265,6 +279,7 @@ app.whenReady().then(async () => {
   allowCrossOrigin();
   decoder.start(app, ipcMain);
   startDvr();
+  startTimeshift();
   remote.init({ app, ipcMain, isApp: (id) => appContents.has(id), window: () => win });
   createWindow();
   app.on('activate', () => { if (!win) createWindow(); });

@@ -133,6 +133,25 @@ export function hlsConfig(pb: PlaybackSettings, ctx: Ctx) {
   return cfg;
 }
 
+/**
+ * hls.js config for the local pause & rewind buffer (electron/timeshift.cjs): a 30-minute sliding
+ * playlist on disk. Never skip forward or speed up to chase the edge (the viewer chose to be behind),
+ * start 2 segments behind the newest one, and keep some played video for quick small rewinds.
+ */
+export function timeshiftHlsConfig() {
+  return {
+    enableWorker: true,
+    lowLatencyMode: false,
+    liveSyncDurationCount: 2,
+    liveMaxLatencyDurationCount: Infinity,
+    maxLiveSyncPlaybackRate: 1,
+    liveSyncOnStallIncrease: 0, // "LIVE" stays 2 segments back, so "behind live" stays meaningful
+    liveDurationInfinity: false,
+    maxBufferLength: 30,
+    backBufferLength: 60,
+  };
+}
+
 const RES: Record<string, number> = { '2160': 2160, '1080': 1080, '720': 720, '480': 480 };
 export const maxHeight = (pb: PlaybackSettings) => RES[pb.maxResolution] ?? 0;
 
