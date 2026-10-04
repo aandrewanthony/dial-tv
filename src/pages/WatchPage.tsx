@@ -1,19 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, Heart, History, Info, ListVideo, Lock, Pin, PinOff, Play } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronUp, Clock, Heart, History, Info, LayoutList, ListVideo, Pin, PinOff, Search, SlidersHorizontal, Tv } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { desktop } from '../lib/net';
 import Player, { type PlayerHandle } from '../player/Player';
-import { orderedChannels, useApp } from '../store/app';
+import { useApp } from '../store/app';
 import { isPersonalId, useTv } from '../store/tv';
+import { pushRecent, setChannelPrefs, useChannelPrefs } from '../store/channelPrefs';
 import { LockedScreen, fmtTime, useLockedOut, useNow } from '../components/ui';
 import { AddPlaylist } from '../components/AddPlaylist';
 import { ScoreBug } from '../components/GameCard';
 import { matchBroadcasts } from '../lib/channelMatch';
-import { findPersonal, nowNext, TvMark, usePersonalChannels } from '../components/tv/personal';
+import { findPersonal, nowNext, usePersonalChannels } from '../components/tv/personal';
 import { PersonalPlayer } from '../components/tv/PersonalPlayer';
 import { GuideOverlay } from '../components/tv/GuideOverlay';
 import { InfoBanner } from '../components/tv/InfoBanner';
 import { navigate } from '../app/router';
+import { isFavorite, isOrg, toggleFavorite, useOrganized } from '../components/channels/useOrganized';
+import { ChannelList } from '../components/channels/ChannelList';
+import { GroupRail, type RailItem } from '../components/channels/GroupRail';
+import { GroupPicker, GroupPickerAuto } from '../components/channels/GroupPicker';
+import { QualityButton } from '../components/channels/ChannelMenu';
+import type { Channel } from '../types';
 
 /** Keys on these targets belong to the element (Space activates buttons/switches). */
 const OWN_SPACE = 'button, [role=switch], a, input, select, textarea, [contenteditable]';
@@ -23,9 +30,11 @@ const BANNER_MS = 4000;
 /**
  * Live TV. Keys (on this page): G guide overlay · B or Enter channel banner · ↑/↓ channel
  * up/down (includes My Channels) · digits tune by number · plus the player keys.
+ * The lineup is organized (lib/channelOrg.ts): duplicates merged, clean names, a group rail.
  */
 export default function WatchPage() {
-  const { channels, channelOrder, hidden } = useApp(useShallow((s) => ({ channels: s.channels, channelOrder: s.channelOrder, hidden: s.hidden })));
+  const { live, full, groups, org } = useOrganized();
+  const channels = useApp((s) => s.channels);
   const currentId = useApp((s) => s.currentId);
   const lastChannelId = useApp((s) => s.lastChannelId);
   const prevChannelId = useApp((s) => s.prevChannelId);
@@ -37,25 +46,23 @@ export default function WatchPage() {
   const theater = useApp((s) => s.theater);
   const loadingSources = useApp((s) => s.loadingSources);
   const playlistError = useApp((s) => s.playlists.find((p) => p.error)?.error);
-  const { tune, update } = useApp(useShallow((s) => ({ tune: s.tune, update: s.update })));
+  const tune = useApp((s) => s.tune);
+  const { recent, railCollapsed, railGroup, variantChoice } = useChannelPrefs(useShallow((s) => ({ recent: s.recent, railCollapsed: s.railCollapsed, railGroup: s.railGroup, variantChoice: s.variantChoice })));
   const personalDefs = useTv((s) => s.personal);
   const durations = useTv((s) => s.durations);
   const tvHydrated = useTv((s) => s.hydrated);
   const personalChannels = usePersonalChannels();
   const player = useRef<PlayerHandle>(null);
-  const [group, setGroup] = useState<string>('All');
   const [filter, setFilter] = useState('');
   const [pinned, setPinned] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [bannerAt, setBannerAt] = useState(0);
   const pinnedRef = useRef(false);
   pinnedRef.current = pinned;
   const now = useNow(30_000);
   // Re-render while the banner shows so its clock/progress is current and it hides on time.
   const [, setBannerTick] = useState(0);
-  // Big public playlists have 10k+ channels: render in pages to keep the page fast.
-  const [limit, setLimit] = useState(240);
-  useEffect(() => setLimit(240), [group, filter]);
   /** Desktop mini player: shrink to a small always-on-top window in theater mode. */
   const togglePin = async () => {
     const next = !pinned;
@@ -70,9 +77,8 @@ export default function WatchPage() {
     useApp.setState({ theater: false });
   }, []);
 
-  /** Live channels, then My Channels (personal scheduled channels). */
-  const live = useMemo(() => orderedChannels({ channels, channelOrder, hidden }), [channels, channelOrder, hidden]);
-  const list = useMemo(() => [...live, ...personalChannels], [live, personalChannels]);
+  /** Live channels (organized, visible), then My Channels (personal scheduled channels). */
+  const list = useMemo<Channel[]>(() => [...live, ...personalChannels], [live, personalChannels]);
   const listRef = useRef(list);
   listRef.current = list;
 
@@ -82,13 +88,27 @@ export default function WatchPage() {
     if (findPersonal(personalDefs, lastChannelId)) useApp.setState({ currentId: lastChannelId });
   }, [tvHydrated, currentId, lastChannelId, personalDefs]);
 
-  const current = useMemo(() => list.find((c) => c.id === currentId), [list, currentId]) ?? list[0];
+  // Tuned by a raw playlist id (score card, reminder, old saved channel) that is now merged: use the logical channel.
+  useEffect(() => {
+    if (!currentId || isPersonalId(currentId)) return;
+    const logical = org.alias.get(currentId);
+    if (logical && logical !== currentId) useApp.setState({ currentId: logical, lastChannelId: logical });
+  }, [currentId, org]);
+
+  const current = useMemo(
+    () => list.find((c) => c.id === currentId) ?? full.find((c) => c.id === currentId),
+    [list, full, currentId],
+  ) ?? list[0];
   const personal = findPersonal(personalDefs, current?.id);
   const lockedOut = useLockedOut(current?.id);
   const ctx = useMemo(() => ({ programs, personal: personalDefs, durations }), [programs, personalDefs, durations]);
 
-  // Banner on every channel change.
-  useEffect(() => { if (current) setBannerAt(Date.now()); }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Banner on every channel change; remember recently watched.
+  useEffect(() => {
+    if (!current) return;
+    setBannerAt(Date.now());
+    pushRecent(current.id);
+  }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const bannerOn = bannerAt > 0 && Date.now() - bannerAt < BANNER_MS && !guideOpen;
   useEffect(() => {
     if (!bannerAt) return;
@@ -132,7 +152,7 @@ export default function WatchPage() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t?.closest?.(OWN_KEYS) || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (useApp.getState().searchOpen || document.querySelector('.scrim, [role=dialog]')) return;
+      if (useApp.getState().searchOpen || document.querySelector('.scrim, [role=dialog], [role=menu]')) return;
       const stop = () => { e.preventDefault(); e.stopImmediatePropagation(); };
       const all = listRef.current;
       if (e.key === 'g' || e.key === 'G') { stop(); setGuideOpen((o) => !o); return; }
@@ -172,20 +192,53 @@ export default function WatchPage() {
     return () => { window.removeEventListener('keydown', onKey, { capture: true }); clearTimeout(digitTimer); };
   }, []);
 
-  // Live game on the tuned channel → score bug
+  // Live game on the tuned channel → score bug (broadcast matching uses the raw playlist entries).
   const liveGame = useMemo(() => {
     if (!current || personal) return undefined;
-    return Object.values(games).find((g) => g.state === 'in' && matchBroadcasts(g.broadcasts, channels, overrides)?.channel.id === current.id);
+    const ids = isOrg(current) ? current.memberIds : [current.id];
+    return Object.values(games).find((g) => {
+      if (g.state !== 'in') return false;
+      const m = matchBroadcasts(g.broadcasts, channels, overrides)?.channel.id;
+      return !!m && ids.includes(m);
+    });
   }, [games, channels, overrides, current, personal]);
 
-  const groups = useMemo(() => ['All', 'Favorites', ...Array.from(new Set(list.map((c) => c.group)))], [list]);
+  // Group rail: Favorites, Recently watched, My Channels, then visible groups in the user's order.
+  const railItems = useMemo<RailItem[]>(() => {
+    const counts = new Map<string, number>();
+    for (const c of live) counts.set(c.groupKey, (counts.get(c.groupKey) ?? 0) + 1);
+    const items: RailItem[] = [
+      { key: 'all', label: 'All channels', count: list.length, icon: <LayoutList /> },
+      { key: 'fav', label: 'Favorites', count: list.filter((c) => isFavorite(favorites, c)).length, icon: <Heart /> },
+      { key: 'recent', label: 'Recently watched', count: recent.filter((id) => list.some((c) => c.id === id)).length, icon: <Clock /> },
+    ];
+    if (personalChannels.length) items.push({ key: 'mine', label: 'My Channels', count: personalChannels.length, icon: <Tv /> });
+    let first = true;
+    for (const g of groups) {
+      const n = counts.get(g.key);
+      if (g.hidden || !n) continue;
+      items.push({ key: g.key, label: g.label, count: n, section: first ? 'GROUPS' : undefined });
+      first = false;
+    }
+    return items;
+  }, [live, list, groups, favorites, recent, personalChannels]);
+  const rail = railItems.some((i) => i.key === railGroup) ? railGroup : 'all';
+
   const shown = useMemo(() => {
-    const f = filter.toLowerCase();
-    return list.filter((c) =>
-      (group === 'All' || (group === 'Favorites' ? favorites.includes(c.id) : c.group === group)) &&
-      (!f || c.name.toLowerCase().includes(f) || String(c.number).startsWith(filter)),
-    );
-  }, [list, group, filter, favorites]);
+    const f = filter.trim().toLowerCase();
+    if (f) {
+      // Search covers every visible channel, whatever group is selected.
+      return list.filter((c) => {
+        const o = isOrg(c) ? c : undefined;
+        return String(c.number).startsWith(f) || c.name.toLowerCase().includes(f) || (o && (o.rawName.toLowerCase().includes(f) || o.group.toLowerCase().includes(f)));
+      });
+    }
+    if (rail === 'all') return list;
+    if (rail === 'fav') return list.filter((c) => isFavorite(favorites, c));
+    if (rail === 'recent') return recent.map((id) => list.find((c) => c.id === id)).filter((c): c is Channel => !!c);
+    if (rail === 'mine') return personalChannels;
+    return live.filter((c) => c.groupKey === rail);
+  }, [filter, list, live, rail, favorites, recent, personalChannels]);
 
   if (!current) {
     return (
@@ -199,13 +252,14 @@ export default function WatchPage() {
   }
 
   const { now: np, next } = nowNext(current.id, now, ctx);
-  const fav = favorites.includes(current.id);
+  const fav = isFavorite(favorites, current);
   const idx = list.findIndex((c) => c.id === current.id);
   const step = (d: number) => tune(list[(idx + d + list.length) % list.length].id);
-  const prev = prevChannelId ? list.find((c) => c.id === prevChannelId) : undefined;
+  const prev = prevChannelId ? list.find((c) => c.id === prevChannelId) ?? full.find((c) => c.id === prevChannelId) : undefined;
   const progress = np ? Math.min(100, ((now - np.start) / (np.end - np.start)) * 100) : 0;
   const bannerNow = Date.now();
   const bn = bannerOn ? nowNext(current.id, bannerNow, ctx) : undefined;
+  const org1 = isOrg(current) ? current : undefined;
   const overlay = (
     <>
       {liveGame && <ScoreBug g={liveGame} />}
@@ -213,6 +267,7 @@ export default function WatchPage() {
     </>
   );
   const toggleTheater = () => useApp.setState((st) => ({ theater: !st.theater }));
+  const railLabel = railItems.find((i) => i.key === rail)?.label ?? 'All channels';
 
   return (
     <div className={`watch ${guideOpen ? 'tvGuideOpen' : ''}`}>
@@ -222,7 +277,7 @@ export default function WatchPage() {
           {lockedOut ? <LockedScreen /> : personal ? (
             <PersonalPlayer ref={player} def={personal} theater={theater} onTheater={toggleTheater} overlay={overlay} />
           ) : (
-            <Player ref={player} channel={current} theater={theater} onTheater={toggleTheater} overlay={overlay} />
+            <Player key={`q:${variantChoice[current.id] ?? ''}`} ref={player} channel={current} theater={theater} onTheater={toggleTheater} overlay={overlay} />
           )}
         </div>
         <div className="now">
@@ -234,7 +289,7 @@ export default function WatchPage() {
             </div>
           </div>
           <small>CH {current.number} · {current.group}</small>
-          <h2>{current.name}</h2>
+          <h2>{org1?.displayName ?? current.name}</h2>
           {np ? (
             <div className="np">
               <b>{np.title}</b>{np.subtitle && <span>{np.subtitle}</span>}
@@ -247,41 +302,52 @@ export default function WatchPage() {
           <div className="row">
             <button className="tvGuideBtn" onClick={() => setGuideOpen(true)} title="Guide over live TV (G)"><CalendarDays /> Guide</button>
             <button onClick={() => setBannerAt(Date.now())} title="Channel info (B or Enter)"><Info /> Info</button>
-            <button onClick={() => update((st) => ({ favorites: fav ? st.favorites.filter((x) => x !== current.id) : [...st.favorites, current.id] }))}>
+            <button onClick={() => toggleFavorite(current)}>
               <Heart fill={fav ? 'currentColor' : 'none'} /> {fav ? 'Favorited' : 'Favorite'}
             </button>
-            {prev && <button onClick={() => tune(prev.id)} title="Last channel (L)"><History /> {prev.name}</button>}
+            {org1 && <QualityButton c={org1} />}
+            {prev && <button onClick={() => tune(prev.id)} title="Last channel (L)"><History /> {isOrg(prev) ? prev.displayName : prev.name}</button>}
             {personal && <button onClick={() => navigate('channels')}><ListVideo /> Edit channel</button>}
             {desktop() && <button onClick={() => void togglePin()} title="Mini player: small, always on top">{pinned ? <PinOff /> : <Pin />} {pinned ? 'Unpin' : 'Mini player'}</button>}
           </div>
         </div>
       </section>
 
-      <div className="chanBar">
-        <div className="chips">
-          {groups.map((g) => <button key={g} className={group === g ? 'on' : ''} onClick={() => setGroup(g)}>{g}</button>)}
+      <div className={`lineup ${railCollapsed ? 'railCollapsed' : ''}`}>
+        <GroupRail
+          items={railItems}
+          value={rail}
+          onChange={(k) => { setFilter(''); setChannelPrefs({ railGroup: k }); }}
+          collapsed={railCollapsed}
+          onCollapse={(v) => setChannelPrefs({ railCollapsed: v })}
+          onChoose={() => setPickerOpen(true)}
+        />
+        <div className="lineupMain">
+          <div className="chanBar">
+            <div className="lineupTitle">
+              <b>{filter.trim() ? 'Search' : railLabel}</b>
+              <small>{shown.length.toLocaleString()} channel{shown.length === 1 ? '' : 's'}{org.rawCount > org.all.length && !filter.trim() && rail === 'all' ? ` · ${(org.rawCount - org.all.length).toLocaleString()} duplicates merged` : ''}</small>
+            </div>
+            <label className="lineupSearch">
+              <Search />
+              <input className="field small" placeholder="Filter or channel #" aria-label="Search channels" value={filter} onChange={(e) => setFilter(e.target.value)} />
+            </label>
+            <button className="ghost" onClick={() => setPickerOpen(true)} title="Choose countries and categories"><SlidersHorizontal /> Choose channels</button>
+          </div>
+          <ChannelList
+            rows={shown}
+            currentId={current.id}
+            onTune={(id) => tune(id)}
+            now={now}
+            ctx={ctx}
+            favorites={favorites}
+            locked={locked}
+            empty={rail === 'fav' && !filter ? 'No favorites yet. Use the star on a channel.' : rail === 'recent' && !filter ? 'Channels you watch show up here.' : 'No channels match.'}
+          />
         </div>
-        <input className="field small" placeholder="Filter or channel #" value={filter} onChange={(e) => setFilter(e.target.value)} />
-      </div>
-      <div className="channels">
-        {shown.slice(0, limit).map((c) => {
-          const cp = nowNext(c.id, now, ctx).now;
-          return (
-            <button key={c.id} className={current.id === c.id ? 'selected' : ''} onClick={() => tune(c.id)}>
-              <TvMark channel={c} />
-              <div>
-                <small>{c.number} · {c.group}</small>
-                <b>{c.name}</b>
-                {cp && <span className="np1">{cp.title}</span>}
-              </div>
-              {locked.includes(c.id) ? <Lock /> : favorites.includes(c.id) ? <Heart fill="currentColor" /> : <Play />}
-            </button>
-          );
-        })}
-        {!shown.length && <p className="muted">No channels match.</p>}
-        {shown.length > limit && <button className="moreBtn" onClick={() => setLimit((l) => l + 480)}>Show more · {shown.length - limit} more channels (or type to filter)</button>}
       </div>
       {guideOpen && <GuideOverlay rows={list} currentId={current.id} onTune={(id) => tune(id)} onClose={() => setGuideOpen(false)} />}
+      {pickerOpen ? <GroupPicker onClose={() => setPickerOpen(false)} /> : <GroupPickerAuto />}
     </div>
   );
 }

@@ -18,6 +18,12 @@ import { requestNotifyPermission } from '../lib/notify';
 import { useRoute, navigate } from '../app/router';
 import { desktop, isDesktop, type DecoderInfo } from '../lib/net';
 import { BUFFER_HELP, bufferProfile, machineInfo, resolveComputer } from '../player/tuning';
+import { setChannelPrefs, useChannelPrefs } from '../store/channelPrefs';
+import type { OrgChannel } from '../lib/channelOrg';
+import { isFavorite, toggleFavorite, useOrganized } from '../components/channels/useOrganized';
+import { GroupManager } from '../components/channels/GroupManager';
+import { GroupPicker } from '../components/channels/GroupPicker';
+import { GuideDataPanel, GuideMappingPanel } from './GuideSettings';
 
 type Tab = 'sources' | 'channels' | 'mapping' | 'playback' | 'sports' | 'parental' | 'appearance' | 'backup';
 const TABS: [Tab, string][] = [
@@ -54,34 +60,9 @@ export default function SettingsPage() {
 
 function Sources() {
   const playlists = useApp((s) => s.playlists);
-  const epgSources = useApp((s) => s.epgSources);
   const loading = useApp((s) => s.loadingSources);
   const update = useApp((s) => s.update);
-  const [epgUrl, setEpgUrl] = useState('');
-  const [err, setErr] = useState<string>();
 
-  const addEpg = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const u = safeUrl(epgUrl);
-    if (!u) return setErr('Enter a valid http(s) URL');
-    update((st) => ({ epgSources: [...st.epgSources, { id: `epg${Date.now()}`, name: new URL(u).hostname, kind: 'xmltv-url', url: u, enabled: true }] }));
-    setEpgUrl('');
-    await useApp.getState().loadSources();
-  };
-  const addXmltvFile = async (f: File) => {
-    const id = `xmltv${Date.now()}`;
-    await kv.set(`file:${id}`, await f.text());
-    update((st) => ({ epgSources: [...st.epgSources, { id, name: f.name, kind: 'xmltv-file', enabled: true }] }));
-    await useApp.getState().loadSources();
-  };
-  const removeEpg = (id: string) => {
-    // Prefer the store action when available (it also cleans up dependent state).
-    const rm = (useApp.getState() as { removeEpgSource?: (id: string) => unknown }).removeEpgSource;
-    if (rm) { void rm(id); return; }
-    update((st) => ({ epgSources: st.epgSources.filter((x) => x.id !== id) }));
-    void kv.del(`file:${id}`);
-    reload();
-  };
   const removePlaylist = (id: string) => {
     const rm = (useApp.getState() as { removePlaylist?: (id: string) => unknown }).removePlaylist;
     if (rm) { void rm(id); return; }
@@ -113,51 +94,33 @@ function Sources() {
         <AddPlaylist />
       </section>
 
-      <section className="panel">
-        <h2>Guide data (XMLTV)</h2>
-        <p className="muted">Listings from your provider’s EPG URL (often added automatically from the playlist header). .xml and .xml.gz supported.</p>
-        {epgSources.map((p) => (
-          <div className="srcRow" key={p.id}>
-            <Toggle on={p.enabled} label={`Enable guide ${p.name}`} onChange={(v) => { update((st) => ({ epgSources: st.epgSources.map((x) => (x.id === p.id ? { ...x, enabled: v } : x)) })); reload(); }} />
-            <div>
-              <b>{p.name}</b>
-              <small>{p.kind === 'xmltv-url' ? redactUrl(p.url!) : 'Local file'}{p.programCount != null && ` · ${p.programCount} listings`}</small>
-              {p.error && <small className="err"><AlertTriangle /> {p.error}</small>}
-            </div>
-            <button className="icon" aria-label={`Remove guide ${p.name}`} onClick={() => removeEpg(p.id)}><Trash2 /></button>
-          </div>
-        ))}
-        <form className="row" onSubmit={addEpg}>
-          <input className="field" placeholder="https://provider.example/epg.xml.gz" value={epgUrl} onChange={(e) => setEpgUrl(e.target.value)} />
-          <button className="primary" disabled={!epgUrl}><Link2 /> Add URL</button>
-        </form>
-        <label className="upload small"><Upload /><b>IMPORT XMLTV FILE</b><input type="file" accept=".xml,.xmltv" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void addXmltvFile(f); }} /></label>
-        {err && <p className="err">{err}</p>}
-      </section>
+      <GuideDataPanel />
     </div>
   );
 }
 
-const SortRow = memo(function SortRow({ c, guard }: { c: Channel; guard: (fn: () => void) => void }) {
+const SortRow = memo(function SortRow({ c, guard }: { c: OrgChannel; guard: (fn: () => void) => void }) {
   const hidden = useApp((s) => s.hidden.includes(c.id));
+  const groupHidden = useChannelPrefs((s) => s.hiddenGroups.includes(c.groupKey));
   const locked = useApp((s) => s.settings.locked.includes(c.id));
-  const fav = useApp((s) => s.favorites.includes(c.id));
+  const fav = useApp((s) => isFavorite(s.favorites, c));
   const update = useApp((s) => s.update);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: c.id });
-  const toggle = (key: 'hidden' | 'favorites', on: boolean) => update((st) => ({ [key]: on ? st[key].filter((x) => x !== c.id) : [...st[key], c.id] }));
+  const toggleHidden = () => update((st) => ({ hidden: hidden ? st.hidden.filter((x) => x !== c.id) : [...st.hidden, c.id] }));
   // Changing a lock needs the PIN (when one is set).
   const toggleLock = () => guard(() => update((st) => ({
     settings: { ...st.settings, locked: st.settings.locked.includes(c.id) ? st.settings.locked.filter((x) => x !== c.id) : [...st.settings.locked, c.id] },
   })));
   return (
-    <div ref={setNodeRef} className={`chRow ${hidden ? 'hiddenCh' : ''}`} style={{ transform: transform ? `translate3d(0, ${transform.y}px, 0)` : undefined, transition }}>
+    <div ref={setNodeRef} className={`chRow ${hidden || groupHidden ? 'hiddenCh' : ''}`} style={{ transform: transform ? `translate3d(0, ${transform.y}px, 0)` : undefined, transition }}>
       <span className="grip" {...attributes} {...listeners}><GripVertical /></span>
       <ChannelMark channel={c} size={30} />
       <span className="num">{c.number}</span>
-      <b>{c.name}</b>
-      <small>{c.group}</small>
-      <button className={`icon ${fav ? 'on' : ''}`} title="Favorite" onClick={() => toggle('favorites', fav)}><Heart fill={fav ? 'currentColor' : 'none'} /></button>
-      <button className="icon" title={hidden ? 'Show' : 'Hide'} onClick={() => toggle('hidden', hidden)}>{hidden ? <EyeOff /> : <Eye />}</button>
+      <b title={c.variants.map((v) => v.rawName).join('\n')}>{c.displayName}{c.country && <span className="ccBadge">{c.country}</span>}</b>
+      {c.variants.length > 1 && <span className="qBadge">{c.qualityLabel}<small>×{c.variants.length}</small></span>}
+      <small>{c.group}{groupHidden ? ' (hidden)' : ''}</small>
+      <button className={`icon ${fav ? 'on' : ''}`} title="Favorite" onClick={() => toggleFavorite(c)}><Heart fill={fav ? 'currentColor' : 'none'} /></button>
+      <button className="icon" title={hidden ? 'Show' : 'Hide'} onClick={toggleHidden}>{hidden ? <EyeOff /> : <Eye />}</button>
       <button className={`icon ${locked ? 'on' : ''}`} title={locked ? 'Unlock' : 'Lock (needs PIN)'} onClick={toggleLock}>{locked ? <Lock /> : <Unlock />}</button>
     </div>
   );
@@ -165,47 +128,68 @@ const SortRow = memo(function SortRow({ c, guard }: { c: Channel; guard: (fn: ()
 
 function Channels() {
   const [q, setQ] = useState('');
+  const [grp, setGrp] = useState('*');
+  const [picker, setPicker] = useState(false);
   const [guard, pinModal] = usePinGuard();
-  const all = useOrdered(true);
+  const { full, groups, org } = useOrganized();
+  const merge = useChannelPrefs((s) => s.mergeDuplicates);
+  const renumber = useChannelPrefs((s) => s.renumber);
+  const inGroup = useMemo(() => (grp === '*' ? full : full.filter((c) => c.groupKey === grp)), [full, grp]);
   const shown = useMemo(() => {
     const n = q.toLowerCase();
-    return all.filter((c) => !n || `${c.name} ${c.group} ${c.number}`.toLowerCase().includes(n)).slice(0, 300);
-  }, [all, q]);
+    return inGroup.filter((c) => !n || `${c.name} ${c.rawName} ${c.group} ${c.number}`.toLowerCase().includes(n)).slice(0, 300);
+  }, [inGroup, q]);
   const ids = useMemo(() => shown.map((c) => c.id), [shown]);
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return;
-    const all_ = all.map((c) => c.id);
+    const all_ = full.map((c) => c.id);
     const from = all_.indexOf(String(e.active.id));
     const to = all_.indexOf(String(e.over.id));
     useApp.setState({ channelOrder: arrayMove(all_, from, to) });
   };
   return (
-    <section className="panel">
-      <div className="panelHead">
-        <h2>Channels · {all.length}</h2>
-        <div className="row">
-          <input className="field small" placeholder="Filter" value={q} onChange={(e) => setQ(e.target.value)} />
-          <button className="ghost" onClick={() => useApp.setState({ channelOrder: [] })}>Reset order</button>
+    <div className="settingsCol">
+      <section className="panel">
+        <h2>Organize</h2>
+        <div className="setting">
+          <div><b>Merge duplicates</b><span>One channel for “ESPN”, “ESPN FHD”, “ESPN 4K”, “ESPN (Backup)”… The best quality for your Playback settings plays first; the others are backups and can be picked in the channel’s Quality menu.{org.rawCount > 0 && ` ${org.rawCount.toLocaleString()} playlist entries → ${org.all.length.toLocaleString()} channels.`}</span></div>
+          <Toggle label="Merge duplicates" on={merge} onChange={(v) => setChannelPrefs({ mergeDuplicates: v })} />
         </div>
-      </div>
-      <p className="muted small">Drag to reorder, hide channels you never watch, lock channels behind the parental PIN.{all.length > 300 && ' Showing the first 300 — filter to find others.'}</p>
-      <DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-          <div className="chList">{shown.map((c) => <SortRow key={c.id} c={c} guard={guard} />)}</div>
-        </SortableContext>
-      </DndContext>
-      {pinModal}
-    </section>
+        <div className="setting">
+          <div><b>Renumber channels</b><span>Number your visible channels 1, 2, 3… in your order (typing a number tunes these).</span></div>
+          <Toggle label="Renumber channels" on={renumber} onChange={(v) => setChannelPrefs({ renumber: v })} />
+        </div>
+      </section>
+      <GroupManager onChoose={() => setPicker(true)} />
+      <section className="panel">
+        <div className="panelHead">
+          <h2>Channels · {inGroup.length.toLocaleString()}</h2>
+          <div className="row">
+            <select className="field small" aria-label="Group" value={grp} onChange={(e) => setGrp(e.target.value)}>
+              <option value="*">All groups</option>
+              {groups.map((g) => <option key={g.key} value={g.key}>{g.label}{g.hidden ? ' (hidden)' : ''} · {g.count}</option>)}
+            </select>
+            <input className="field small" placeholder="Filter" value={q} onChange={(e) => setQ(e.target.value)} />
+            <button className="ghost" onClick={() => useApp.setState({ channelOrder: [] })}>Reset order</button>
+          </div>
+        </div>
+        <p className="muted small">Drag to reorder inside a group, hide channels you never watch, lock channels behind the parental PIN.{inGroup.length > 300 && ' Showing the first 300 — filter or pick a group to find others.'}</p>
+        <DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+            <div className="chList">{shown.map((c) => <SortRow key={c.id} c={c} guard={guard} />)}</div>
+          </SortableContext>
+        </DndContext>
+        {pinModal}
+      </section>
+      {picker && <GroupPicker onClose={() => setPicker(false)} />}
+    </div>
   );
 }
 
 function Mapping() {
   const channels = useOrdered();
   const games = useApp((s) => s.games);
-  const programs = useApp((s) => s.programs);
   const overrides = useApp((s) => s.networkOverrides);
-  const epgManual = useApp((s) => s.epgManual);
-  const xmltvChannels = useApp((s) => s.xmltvChannels);
   const update = useApp((s) => s.update);
   const networks = useMemo(() => {
     const m = new Map<string, { label: string; count: number }>();
@@ -218,14 +202,7 @@ function Mapping() {
   }, [games]);
   // Matching scans every channel per network: do it once per data change.
   const matches = useMemo(() => networks.map(([canon, v]) => ({ canon, ...v, m: matchNetwork(v.label, channels, overrides) })), [networks, channels, overrides]);
-  const progCount = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const p of programs) m.set(p.channelId, (m.get(p.channelId) ?? 0) + 1);
-    return m;
-  }, [programs]);
   const chOptions = useMemo(() => channels.map((c) => ({ id: c.id, label: `${c.number} · ${c.name}` })), [channels]);
-  const xmlOptions = useMemo(() => xmltvChannels.map((x) => ({ id: x.id, label: `${x.name} (${x.id})` })), [xmltvChannels]);
-  const noGuide = useMemo(() => channels.filter((c) => !progCount.get(c.id)).slice(0, 200), [channels, progCount]);
 
   return (
     <div className="settingsCol">
@@ -254,25 +231,7 @@ function Mapping() {
           );
         })}
       </section>
-      <section className="panel">
-        <h2>Guide mapping</h2>
-        <p className="muted">Channels without listings. Pick the matching XMLTV channel — saved and applied on the next reload.</p>
-        {!xmltvChannels.length ? <p className="muted">Add an XMLTV source to map guide data.</p> : noGuide.map((c) => (
-          <div className="mapRow" key={c.id}>
-            <div><b>{c.name}</b><small>{c.tvgId ? `tvg-id ${c.tvgId}` : 'no tvg-id'}</small></div>
-            <ChannelPicker
-              value={epgManual[c.id]}
-              options={xmlOptions}
-              onChange={(id) => update((st) => {
-                const m = { ...st.epgManual };
-                if (id) m[c.id] = id; else delete m[c.id];
-                return { epgManual: m };
-              })}
-            />
-          </div>
-        ))}
-        {xmltvChannels.length > 0 && <button onClick={() => void useApp.getState().loadSources()}><RefreshCw /> Apply &amp; reload guide</button>}
-      </section>
+      <GuideMappingPanel />
     </div>
   );
 }

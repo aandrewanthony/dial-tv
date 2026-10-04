@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Lock, X } from 'lucide-react';
 import type { Channel, Program, Team } from '../types';
-import { sha256, useApp } from '../store/app';
+import { lockedSet, programsByChannel, sha256, useApp } from '../store/app';
 
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   useEffect(() => {
@@ -82,21 +82,13 @@ export function countdown(ms: number) {
 
 // ---------- guide lookups (programs can number in the millions) ----------
 
-const progIndexCache = new WeakMap<Program[], Map<string, Program[]>>();
-
-/** Programs grouped by channel and sorted by start; built once per programs array. */
+/**
+ * Programs grouped by playlist channel id and sorted by start; built once per programs array.
+ * Same index as store/app#programsByChannel, so guide listings shared by several playlist
+ * channels (one guide channel) are found under each of their ids.
+ */
 export function programIndex(programs: Program[]) {
-  let m = progIndexCache.get(programs);
-  if (m) return m;
-  m = new Map();
-  for (const p of programs) {
-    const arr = m.get(p.channelId);
-    if (arr) arr.push(p);
-    else m.set(p.channelId, [p]);
-  }
-  for (const arr of m.values()) arr.sort((a, b) => a.start - b.start);
-  progIndexCache.set(programs, m);
-  return m;
+  return programsByChannel(programs);
 }
 
 /** Index of the first program starting after `at` (binary search). */
@@ -137,7 +129,7 @@ export function useNow(ms = 30_000) {
 
 /** True when the channel is locked, a PIN is set and this session isn't unlocked. */
 export function useLockedOut(channelId?: string) {
-  return useApp((s) => !!channelId && !!s.settings.lockPin && !s.unlocked && s.settings.locked.includes(channelId));
+  return useApp((s) => !!channelId && !!s.settings.lockPin && !s.unlocked && lockedSet(s).has(channelId));
 }
 
 export function LockedScreen() {

@@ -3,9 +3,10 @@ import { Link2, Loader2, Upload } from 'lucide-react';
 import { useApp } from '../store/app';
 import { kv } from '../store/db';
 import { safeUrl } from '../lib/url';
+import { GroupPickerAuto } from './channels/GroupPicker';
 
 /** Add your own M3U playlist by link or file. Used in Settings and on the empty Watch page. */
-export function AddPlaylist() {
+export function AddPlaylist({ pickAfterAdd = true }: { pickAfterAdd?: boolean } = {}) {
   const update = useApp((s) => s.update);
   const loading = useApp((s) => s.loadingSources);
   const [name, setName] = useState('');
@@ -42,6 +43,8 @@ export function AddPlaylist() {
         <input type="file" accept=".m3u,.m3u8,.txt" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void addFile(f); }} />
       </label>
       {err && <p className="err">{err}</p>}
+      {/* Big playlist just added (here in Settings): offer "Choose your channels" right away. */}
+      {pickAfterAdd && <GroupPickerAuto />}
     </div>
   );
 }

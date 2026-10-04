@@ -14,7 +14,7 @@ await page.waitForTimeout(3000);
 
 const listing = await (await fetch(`http://127.0.0.1:${LAB}/list.m3u`)).text();
 const expected = listing.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('#EXTINF')).map((l) => l.slice(l.indexOf(',') + 1).trim()).filter((n) => CHECKED.test(n) && n.toLowerCase().includes(filter.toLowerCase()));
-const results = await page.evaluate(async ({ filter, lab }) => {
+const results = await page.evaluate(async ({ filter, lab, expected }) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   location.hash = '#/settings/sources'; await sleep(1200);
   if (![...document.querySelectorAll('.srcRow')].some((r) => r.textContent.includes(`127.0.0.1:${lab}`))) {
@@ -28,9 +28,15 @@ const results = await page.evaluate(async ({ filter, lab }) => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(f, filter);
   f.dispatchEvent(new Event('input', { bubbles: true })); await sleep(300);
   const out = [];
-  const names = [...document.querySelectorAll('.channels > button')].map((x) => x.querySelector('b').textContent).filter((n) => /^(TS|NOEXT|HLS|COMPAT|RADIO) /.test(n));
+  // The Live TV list is virtualized (only visible rows exist), so search for each expected channel by name.
+  const names = expected.filter((n) => !/^COMPAT Movie/.test(n));
+  const setFilter = (v) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(f, v); f.dispatchEvent(new Event('input', { bubbles: true })); };
   for (const name of names) {
-    [...document.querySelectorAll('.channels > button')].find((x) => x.querySelector('b').textContent === name).click();
+    setFilter(name);
+    await sleep(400);
+    const btn = [...document.querySelectorAll('.channels > button')].find((x) => x.dataset.raw === name || x.querySelector('b')?.textContent === name);
+    if (!btn) { out.push({ name, ok: false, why: 'NOT IMPORTED: not found by search in Live TV' }); continue; }
+    btn.click();
     const t0 = Date.now(); let r = { name, ok: false, why: 'timeout 60s' };
     let base = null;
     while (Date.now() - t0 < 60000) {
@@ -54,7 +60,7 @@ const results = await page.evaluate(async ({ filter, lab }) => {
     out.push(r);
   }
   return out;
-}, { filter, lab: LAB });
+}, { filter, lab: LAB, expected });
 
 // Movie files are VOD now: they live in Movies & Series, not Live TV. Play them the way a user would.
 for (const n of expected.filter((x) => /^COMPAT Movie/.test(x) && !results.some((r) => r.name === x))) {

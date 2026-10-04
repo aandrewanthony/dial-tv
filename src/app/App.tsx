@@ -3,7 +3,7 @@ import {
   AlertTriangle, CalendarDays, CalendarClock, Clapperboard, Gamepad2, Grid2x2, Home, ListVideo, Lock, Radio, Search, Settings, Shield, Ticket, Trophy, Tv, X, Flame, Bell, Zap,
 } from 'lucide-react';
 import { navigate, sectionOf, useRoute, type Route, type Section } from './router';
-import { orderedChannels, sha256, showScore, useApp } from '../store/app';
+import { lockedSet, orderedChannels, sha256, showScore, useApp } from '../store/app';
 import { useEngine } from '../hooks/useEngine';
 import { SearchPalette } from '../components/SearchPalette';
 import { Modal } from '../components/ui';
@@ -240,12 +240,13 @@ function LockGate() {
   const unlocked = useApp((s) => s.unlocked);
   const [pin, setPin] = useState('');
   const [bad, setBad] = useState(false);
-  const blocked = !!pinHash && !unlocked && !!currentId && locked.includes(currentId);
+  const lockedIds = useApp((s) => lockedSet(s));
+  const blocked = !!pinHash && !unlocked && !!currentId && lockedIds.has(currentId);
   if (!blocked) return null;
   const leave = () => {
     const s = useApp.getState();
-    const safe = orderedChannels(s).find((c) => !locked.includes(c.id));
-    const id = s.prevChannelId && !locked.includes(s.prevChannelId) ? s.prevChannelId : safe?.id;
+    const safe = orderedChannels(s).find((c) => !lockedIds.has(c.id));
+    const id = s.prevChannelId && !lockedIds.has(s.prevChannelId) ? s.prevChannelId : safe?.id;
     // lastChannelId too, so the next launch doesn't reopen the locked channel.
     useApp.setState({ currentId: id, lastChannelId: id });
   };

@@ -23,6 +23,10 @@ function pushTo<K, V>(m: Map<K, V[]>, k: K, v: V) {
 }
 
 /**
+ * In-memory helper (tests, small imports). The app itself loads guides through the guide worker
+ * (workers/epg.worker.ts → store/guide.ts), which stores each programme once per guide channel
+ * instead of copying it onto every playlist channel like this function does.
+ *
  * Join XMLTV programmes to playlist channels:
  * 1) tvg-id === xmltv channel id, 2) manual mapping, 3) normalized display-name match.
  * `window` limits programmes to a time range before they are expanded per channel.

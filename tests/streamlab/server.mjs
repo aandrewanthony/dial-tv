@@ -158,6 +158,15 @@ function track(req, res) {
   res.on('close', () => conns.set(k, conns.get(k) - 1));
 }
 
+// Request counts + bytes per provider file: GET /stats/requests
+const hits = new Map();
+function hit(k, bytes) {
+  const h = hits.get(k) ?? { requests: 0, bytes: 0 };
+  h.requests++;
+  h.bytes += bytes;
+  hits.set(k, h);
+}
+
 /** Stream a file like a real live channel: real-time pace, looping with continuous timestamps. */
 function live(res, file, prof) {
   res.writeHead(200, { 'Content-Type': 'video/mp2t', 'Cache-Control': 'no-store' });
@@ -217,6 +226,9 @@ http.createServer((req, res) => {
   let u = decodeURIComponent(req.url.split('?')[0]);
   if (u === '/stats') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(Object.fromEntries(peak))); }
   if (u === '/stats/reset') { peak.clear(); res.writeHead(200); return res.end(); }
+  // Provider-download counters (guide benchmark: a restart in Manual mode must not download anything).
+  if (u === '/stats/requests') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(Object.fromEntries(hits))); }
+  if (u === '/stats/requests/reset') { hits.clear(); res.writeHead(200); return res.end(); }
   if (/^\/(live|compat|net|vod)\//.test(u)) track(req, res);
   let prof;
   const net = /^\/net\/(\w+)(\/.*)$/.exec(u);
@@ -248,6 +260,18 @@ http.createServer((req, res) => {
   if (u.startsWith('/vod/hls/')) {
     const f = path.join(dir, 'hls_vod', path.basename(u));
     if (fs.existsSync(f)) { res.writeHead(200, { 'Content-Type': f.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t' }); return res.end(fs.readFileSync(f)); }
+  }
+  // Big-provider fixtures (node tests/streamlab/big-provider.mjs): playlist + gzip XMLTV.
+  if (u === '/big.m3u' && fs.existsSync(path.join(dir, 'big.m3u'))) {
+    // The generated playlist points its url-tvg at port 8787: follow this lab's port.
+    const body = Buffer.from(fs.readFileSync(path.join(dir, 'big.m3u'), 'utf8').replaceAll('127.0.0.1:8787', `127.0.0.1:${PORT}`));
+    hit(u, body.length);
+    res.writeHead(200, { 'Content-Type': 'audio/x-mpegurl' }); return res.end(body);
+  }
+  if (u === '/big-epg.xml.gz' && fs.existsSync(path.join(dir, 'big-epg.xml.gz'))) {
+    const body = fs.readFileSync(path.join(dir, 'big-epg.xml.gz'));
+    hit(u, body.length);
+    res.writeHead(200, { 'Content-Type': 'application/gzip' }); return res.end(body);
   }
   if (u === '/list.m3u') { res.writeHead(200, { 'Content-Type': 'audio/x-mpegurl' }); return res.end(m3u); }
   const m = /^\/live\/lab\/([\w-]+?)(\.ts)?$/.exec(u);

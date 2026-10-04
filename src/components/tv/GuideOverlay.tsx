@@ -8,6 +8,7 @@ import { entryFromProgram } from '../../lib/scheduler';
 import { Modal, fmtDay, fmtTime, useNow } from '../ui';
 import { programsFor, TvMark } from './personal';
 import { leftLabel } from './InfoBanner';
+import { guideProgressText, loadGuide, useGuide } from '../../store/guide';
 
 const MIN = 60_000;
 const HALF = 30 * MIN;
@@ -132,6 +133,7 @@ export function GuideOverlay({ rows, currentId, onTune, onClose }: Props) {
             </p>
           )}
           {sel?.description && <p className="tvGuideDesc">{sel.description}</p>}
+          <GuideEmptyLine />
           <p className="tvGuideKeys"><kbd>↑↓←→</kbd> move · <kbd>Enter</kbd> {selLive || !sel ? 'tune' : 'details'} · <kbd>Esc</kbd>/<kbd>G</kbd> close</p>
         </div>
         <button className="icon tvGuideClose" onClick={onClose} aria-label="Close guide"><X /></button>
@@ -212,4 +214,15 @@ function ProgramDetails({ p, channel, onTune, onClose }: { p: Program; channel?:
       </div>
     </Modal>
   );
+}
+
+/** One line when the guide hasn't been downloaded yet (it only downloads on request). */
+function GuideEmptyLine() {
+  const loaded = useGuide((s) => s.loaded);
+  const loading = useGuide((s) => s.loading);
+  const progress = useGuide((s) => s.progress);
+  const hasSource = useApp((s) => s.epgSources.some((e) => e.enabled));
+  if (loaded || !hasSource) return null;
+  if (loading) return <p className="tvGuideEmpty" role="status">Loading guide… {guideProgressText(progress).text}</p>;
+  return <p className="tvGuideEmpty" role="status">Guide not loaded — <button className="link" onClick={() => void loadGuide()}>Load</button></p>;
 }

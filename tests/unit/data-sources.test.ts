@@ -73,19 +73,37 @@ describe('loadSources', () => {
     expect(s.playlists.find((p) => p.id === 'a')).toMatchObject({ enabled: false, channelCount: 1 });
   });
 
-  it('auto-discovers a playlist guide once and never re-adds a dismissed one', async () => {
+  it('auto-discovers a playlist guide once (without downloading it) and never re-adds a dismissed one', async () => {
     useApp.setState({ playlists: [pl('a')] });
     let done = useApp.getState().loadSources();
     await respond('https://pl/a.m3u', m3u(['A1'], 'https://g/guide.xml'));
-    await respond('https://g/guide.xml', '<tv></tv>');
     await done;
     expect(useApp.getState().epgSources.map((e) => e.id)).toEqual(['epg-a']);
+    // Guides download only on request (store/guide.ts#loadGuide), never as part of a playlist load.
+    expect(pending.get('https://g/guide.xml') ?? []).toHaveLength(0);
 
-    done = useApp.getState().removeEpgSource('epg-a');
+    // Removing the guide re-downloads nothing.
+    await useApp.getState().removeEpgSource('epg-a');
+    expect(useApp.getState().epgSources).toEqual([]);
+    expect(useApp.getState().dismissedEpgUrls).toEqual(['https://g/guide.xml']);
+    expect(pending.get('https://pl/a.m3u') ?? []).toHaveLength(0);
+
+    // A later playlist refresh doesn't bring the dismissed guide back.
+    done = useApp.getState().loadSources();
     await respond('https://pl/a.m3u', m3u(['A1'], 'https://g/guide.xml'));
     await done;
     expect(useApp.getState().epgSources).toEqual([]);
-    expect(useApp.getState().dismissedEpgUrls).toEqual(['https://g/guide.xml']);
+  });
+
+  it('rebuilds channels without downloading when a playlist is removed', async () => {
+    useApp.setState({ playlists: [pl('a'), pl('b')] });
+    const done = useApp.getState().loadSources();
+    await respond('https://pl/a.m3u', m3u(['A1']));
+    await respond('https://pl/b.m3u', m3u(['B1']));
+    await done;
+    await useApp.getState().removePlaylist('a');
+    expect(useApp.getState().channels.map((c) => c.name)).toEqual(['B1']);
+    expect(pending.get('https://pl/b.m3u') ?? []).toHaveLength(0);
   });
 
   it('remaps channel numbers that collide across playlists', async () => {

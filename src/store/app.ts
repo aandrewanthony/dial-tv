@@ -3,10 +3,11 @@ import type {
   Channel, EpgSource, League, PlaylistSource, Program, ScheduleEntry, ScheduleRule, SportEvent,
 } from '../types';
 import { kv } from './db';
-import { m3uUrlProvider, mapXmltvPrograms } from '../providers/remote';
+import { m3uUrlProvider } from '../providers/remote';
 import { parseM3U } from '../lib/m3u';
-import { fetchText } from '../lib/net';
 import { HOUR } from '../lib/scheduler';
+import { applyPrefs, localeCountry, organize, orderGroups, type GroupInfo, type OrgChannel, type Organized } from '../lib/channelOrg';
+import { useChannelPrefs, type ChannelPrefs } from './channelPrefs';
 
 export const SCHEMA_VERSION = 5;
 
@@ -143,13 +144,14 @@ export type AppState = PersistedState & RuntimeState & {
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: string) => void;
   /**
-   * Reload all enabled playlists and guides. Concurrent calls coalesce: while a load is
-   * running, a call schedules one follow-up pass and resolves when that pass finishes.
+   * Re-download enabled playlists (all, or `only` these — the others keep their loaded channels).
+   * Guides are not downloaded here (store/guide.ts#loadGuide). Concurrent calls coalesce: while a
+   * load is running, a call schedules one follow-up pass and resolves when that pass finishes.
    */
-  loadSources: () => Promise<void>;
-  /** Remove a playlist (and its stored file), then reload. */
+  loadSources: (opts?: { only?: string[] }) => Promise<void>;
+  /** Remove a playlist (and its stored file), then rebuild channels without re-downloading. */
   removePlaylist: (id: string) => Promise<void>;
-  /** Remove a guide source (and its stored file), remember its URL so playlist auto-discovery won't re-add it, then reload. */
+  /** Remove a guide source (and its stored file), remember its URL so playlist auto-discovery won't re-add it. */
   removeEpgSource: (id: string) => Promise<void>;
 };
 
@@ -244,8 +246,8 @@ function legacySchedule(): ScheduleEntry[] {
 
 const PERSIST_KEYS: (keyof PersistedState)[] = Object.keys(defaultPersisted()) as (keyof PersistedState)[];
 
-/** Guide window kept in memory: 12h back, 7 days ahead. */
-export const EPG_BACK = 12 * HOUR;
+/** Guide window bounds: listings are kept from 6h back to at most 7 days ahead (store/guide.ts, Settings → days). */
+export const EPG_BACK = 6 * HOUR;
 export const EPG_AHEAD = 7 * 24 * HOUR;
 
 let toastSeq = 0;
@@ -274,7 +276,6 @@ export function dedupeChannelNumbers(channels: Channel[]): Channel[] {
 }
 
 type PlaylistMeta = Pick<PlaylistSource, 'lastLoaded' | 'channelCount' | 'error'>;
-type EpgMeta = Pick<EpgSource, 'lastLoaded' | 'programCount' | 'error'>;
 
 /** Merge per-source load results into the CURRENT source list; removed sources are never re-added. */
 function mergeMeta<T extends { id: string }, M>(list: T[], meta: Map<string, M>): T[] {
@@ -284,15 +285,33 @@ function mergeMeta<T extends { id: string }, M>(list: T[], meta: Map<string, M>)
 
 let loadInFlight: Promise<void> | null = null;
 let loadDirty = false;
+/** Follow-up pass request: undefined = none, null = all playlists, Set = only these (union of calls). */
+let pendingOnly: Set<string> | null | undefined;
 
 export const useApp = create<AppState>((set, get) => {
-  /** One full pass over the sources. All writes merge into current state, never stale snapshots. */
-  async function loadOnce() {
+  /**
+   * One pass over the playlists. All writes merge into current state, never stale snapshots.
+   * `only`: re-download just these playlists and reuse the channels already loaded for the others
+   * (null = re-download all). Guides are NOT downloaded here: see store/guide.ts (manual "Load guide").
+   */
+  async function loadOnce(only: Set<string> | null) {
     const results = new Map<string, Channel[]>();
     const plMeta = new Map<string, PlaylistMeta>();
     let numberStart = 200;
+    const have = new Map<string, Channel[]>();
+    if (only) for (const c of get().channels) {
+      const arr = have.get(c.sourceId);
+      if (arr) arr.push(c);
+      else have.set(c.sourceId, [c]);
+    }
 
     for (const src of get().playlists.filter((p) => p.enabled)) {
+      const reuse = only && !only.has(src.id) ? have.get(src.id) : undefined;
+      if (reuse) {
+        results.set(src.id, reuse);
+        numberStart += Math.ceil((reuse.length + 1) / 100) * 100;
+        continue;
+      }
       try {
         let loaded: Channel[] = [];
         let epgUrl: string | undefined;
@@ -316,42 +335,14 @@ export const useApp = create<AppState>((set, get) => {
     // Channels from the playlists that are enabled *now*, in the current playlist order.
     const channelsNow = () =>
       dedupeChannelNumbers(get().playlists.filter((p) => p.enabled).flatMap((p) => results.get(p.id) ?? []));
-    const mapChannels = channelsNow();
-
-    const programs: Program[] = [];
-    const epgMeta = new Map<string, EpgMeta>();
-    let unmatched: { id: string; name: string }[] = [];
-    let xmltvChannels: { id: string; name: string }[] = [];
-    for (const src of get().epgSources.filter((e) => e.enabled)) {
-      try {
-        let loaded: Program[] = [];
-        const text = src.kind === 'xmltv-file' ? await kv.get<string>(`file:${src.id}`) : await fetchText(src.url!);
-        if (text) {
-          const now = Date.now();
-          const r = mapXmltvPrograms(text, mapChannels, get().epgManual, { from: now - EPG_BACK, to: now + EPG_AHEAD });
-          loaded = r.programs;
-          unmatched = unmatched.concat(r.unmatched);
-          xmltvChannels = xmltvChannels.concat(r.xmltvChannels);
-        }
-        for (const p of loaded) programs.push(p);
-        epgMeta.set(src.id, { lastLoaded: Date.now(), programCount: loaded.length, error: undefined });
-      } catch (e) {
-        epgMeta.set(src.id, { error: (e as Error).message });
-      }
-    }
 
     // Sources may have been toggled/removed while we were awaiting: only keep data for what is enabled now.
+    // The guide store re-maps its cached listings onto the new channels (no download).
     const channels = channelsNow();
     const chIds = new Set(channels.map((c) => c.id));
-    const enabledEpg = new Set(get().epgSources.filter((e) => e.enabled).map((e) => e.id));
-    const keptPrograms = enabledEpg.size ? programs.filter((p) => chIds.has(p.channelId)) : [];
     set((s) => ({
       channels,
-      programs: keptPrograms,
       playlists: mergeMeta(s.playlists, plMeta),
-      epgSources: mergeMeta(s.epgSources, epgMeta),
-      unmatchedEpg: unmatched,
-      xmltvChannels,
       currentId:
         s.currentId && chIds.has(s.currentId) ? s.currentId : channels.find((c) => c.id === s.lastChannelId)?.id ?? (channels.find((c) => !c.kind || c.kind === 'live') ?? channels[0])?.id,
     }));
@@ -404,19 +395,25 @@ export const useApp = create<AppState>((set, get) => {
     },
     dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
-    loadSources: () => {
+    loadSources: (opts) => {
+      const req = opts?.only ? new Set(opts.only) : null;
       if (loadInFlight) {
         // Coalesce: run one more pass after the current one so changes made meanwhile are picked up.
         loadDirty = true;
+        pendingOnly = pendingOnly === undefined ? req : pendingOnly === null || req === null ? null : new Set([...pendingOnly, ...req]);
         return loadInFlight;
       }
       set({ loadingSources: true });
       loadInFlight = (async () => {
         try {
-          do {
+          let only = req;
+          for (;;) {
             loadDirty = false;
-            await loadOnce();
-          } while (loadDirty);
+            pendingOnly = undefined;
+            await loadOnce(only);
+            if (!loadDirty) break;
+            only = pendingOnly ?? null;
+          }
         } finally {
           loadInFlight = null;
           set({ loadingSources: false });
@@ -428,7 +425,8 @@ export const useApp = create<AppState>((set, get) => {
     removePlaylist: async (id) => {
       set((s) => ({ playlists: s.playlists.filter((p) => p.id !== id) }));
       await kv.del(`file:${id}`);
-      await get().loadSources();
+      // Rebuild from the playlists already loaded: nothing is re-downloaded.
+      await get().loadSources({ only: [] });
     },
 
     removeEpgSource: async (id) => {
@@ -440,8 +438,8 @@ export const useApp = create<AppState>((set, get) => {
           dismissedEpgUrls: url && !s.dismissedEpgUrls.includes(url) ? [...s.dismissedEpgUrls, url] : s.dismissedEpgUrls,
         };
       });
+      // The guide store drops that source's cached listings (no downloads).
       await kv.del(`file:${id}`);
-      await get().loadSources();
     },
   };
 });
@@ -535,7 +533,16 @@ export async function hydrate() {
     window.addEventListener('pagehide', flush);
   }
 
-  await useApp.getState().loadSources();
+  // Startup uses cached data only. Playlists are downloaded only when there is no cached copy
+  // (first run, or a playlist that never loaded); "Refresh playlists" / the daily policy re-download.
+  // The guide comes from its own cache and is downloaded only on request (store/guide.ts).
+  const s = useApp.getState();
+  const loadedSources = new Set(s.channels.map((c) => c.sourceId));
+  const missing = s.playlists.filter((p) => p.enabled && (!cachedChannels || (!loadedSources.has(p.id) && !p.lastLoaded)));
+  await Promise.all([
+    missing.length ? s.loadSources({ only: missing.map((p) => p.id) }) : undefined,
+    import('./guide').then((g) => g.initGuide()).catch(() => undefined),
+  ]);
 }
 
 export function pickPersisted(s: AppState): PersistedState {
@@ -548,13 +555,69 @@ export function pickPersisted(s: AppState): PersistedState {
 
 export const isLive = (c: Channel) => !c.kind || c.kind === 'live';
 
-/** Live TV channels in the user's order (movies and series episodes are excluded: see vodItems). */
-export function orderedChannels(s: Pick<AppState, 'channels' | 'channelOrder' | 'hidden'>, includeHidden = false) {
-  const idx = new Map(s.channelOrder.map((id, i) => [id, i]));
-  const hidden = includeHidden ? null : new Set(s.hidden);
-  return s.channels
-    .filter((c) => isLive(c) && (!hidden || !hidden.has(c.id)))
-    .sort((a, b) => (idx.get(a.id) ?? 1e6 + a.number) - (idx.get(b.id) ?? 1e6 + b.number));
+type ChannelSel = Pick<AppState, 'channels' | 'channelOrder' | 'hidden'> & { settings?: Pick<Settings, 'playback'> };
+
+let homeCountry: string | undefined;
+
+/**
+ * Organized live channels (all, including hidden): clean names, duplicates merged into one
+ * logical channel per real channel (Settings → Channels → Merge duplicates), country + category
+ * groups. Memoized per channels array, so it's cheap during render.
+ */
+export function organizedChannels(s: ChannelSel, prefs: ChannelPrefs = useChannelPrefs.getState()): Organized {
+  const maxRes = (s.settings ?? useApp.getState().settings).playback?.maxResolution ?? 'auto';
+  homeCountry ??= localeCountry();
+  return organize(s.channels, { merge: prefs.mergeDuplicates, maxRes, homeCountry });
+}
+
+const appliedCache = new Map<boolean, { deps: unknown[]; out: OrgChannel[] }>();
+
+/**
+ * Live TV channels in the user's order (movies and series episodes are excluded: see vodItems):
+ * merged logical channels with display names, visible groups only (unless includeHidden),
+ * groups in the user's order, then the custom channel order / channel number inside each group.
+ * A logical channel keeps its id entry's id and tvg-id, so guide listings still resolve.
+ */
+export function orderedChannels(s: ChannelSel, includeHidden = false, prefs: ChannelPrefs = useChannelPrefs.getState()): OrgChannel[] {
+  const org = organizedChannels(s, prefs);
+  const deps = [org, s.channelOrder, s.hidden, prefs.hiddenGroups, prefs.groupOrder, prefs.groupNames, prefs.variantChoice, prefs.renumber];
+  const hit = appliedCache.get(includeHidden);
+  if (hit && hit.deps.length === deps.length && hit.deps.every((d, i) => d === deps[i])) return hit.out;
+  const out = applyPrefs(org, prefs, { channelOrder: s.channelOrder, hidden: s.hidden, includeHidden });
+  appliedCache.set(includeHidden, { deps, out });
+  return out;
+}
+
+/** Channel groups in the user's order, with labels (renames applied), counts and hidden flags. */
+export function channelGroups(s: ChannelSel, prefs: ChannelPrefs = useChannelPrefs.getState()): (GroupInfo & { hidden: boolean; defaultLabel: string })[] {
+  const org = organizedChannels(s, prefs);
+  const hidden = new Set(prefs.hiddenGroups);
+  return orderGroups(org, prefs).map((g) => ({ ...g, defaultLabel: g.label, label: prefs.groupNames[g.key] || g.label, hidden: hidden.has(g.key) }));
+}
+
+/** Logical channel id for any playlist entry id (a merged "ESPN 4K" entry → its "ESPN" channel). */
+export function resolveChannelId(s: ChannelSel, id: string | undefined): string | undefined {
+  if (!id) return id;
+  return organizedChannels(s).alias.get(id) ?? id;
+}
+
+/**
+ * Locked channel ids, expanded so a lock saved on any merged duplicate (e.g. "US| ESPN FHD")
+ * also locks the logical channel it was merged into (and the other way round).
+ */
+const lockCache = new WeakMap<string[], { org: unknown; set: Set<string> }>();
+export function lockedSet(s: ChannelSel & { settings: Settings }): Set<string> {
+  const org = organizedChannels(s);
+  const hit = lockCache.get(s.settings.locked);
+  if (hit && hit.org === org) return hit.set;
+  const out = new Set<string>();
+  lockCache.set(s.settings.locked, { org, set: out });
+  for (const id of s.settings.locked) {
+    out.add(id);
+    const logical = org.alias.get(id) ?? id;
+    out.add(logical);
+  }
+  return out;
 }
 
 const vodCache = new WeakMap<Channel[], { movies: Channel[]; episodes: Channel[] }>();
@@ -571,8 +634,17 @@ export function vodItems(channels: Channel[]) {
 const programIndex = new WeakMap<Program[], Map<string, Program[]>>();
 
 /**
- * Programs grouped by channel id, each list sorted by start. Memoized per programs array
- * (the store replaces the array on every load), so it is cheap to call during render.
+ * The guide store registers a ready-made index for the programs array it publishes: guide
+ * listings are stored once per guide channel and shared by every playlist channel that maps to
+ * it, so the index has an entry (the same sorted list) for each of those playlist channel ids.
+ */
+export function registerProgramIndex(programs: Program[], index: Map<string, Program[]>) {
+  programIndex.set(programs, index);
+}
+
+/**
+ * Programs grouped by playlist channel id, each list sorted by start. Memoized per programs array
+ * (the store replaces the array on every change), so it is cheap to call during render.
  */
 export function programsByChannel(programs: Program[]): Map<string, Program[]> {
   let m = programIndex.get(programs);
