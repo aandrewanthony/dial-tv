@@ -28,7 +28,8 @@ const GROUP_CAT: [Category, RegExp][] = [
   ['Locals', /local|affiliate|\bnetworks?\b|regional|\bota\b|broadcast|\babc\b|\bcbs\b|\bnbc\b/],
   ['Music', /music|m[uú]sica|musique|\bradio\b|\bhits\b|\bmtv\b/],
   ['Documentary', /document|dokument|\bdocu|discovery|nature|history|science|knowledge|wildlife/],
-  ['Movies', /movie|cinema|\bcine\b|film|pel[ií]cula|filme|premium|\bhbo\b/],
+  // Not "premium": providers use it for general cable ("USA Premium": TNT, HGTV, FX…); those go by channel name.
+  ['Movies', /movie|cinema|\bcine\b|\bfilms?\b|pel[ií]cula|filme|\bhbo\b/],
   ['Entertainment', /entertain|general|variety|\bseries\b|\bshows?\b|lifestyle|comedy|drama|reality|divertis|entreten|intratten|unterhaltung|\bdiversos\b/],
 ];
 

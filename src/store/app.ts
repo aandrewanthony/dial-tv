@@ -23,6 +23,14 @@ export interface Settings {
   spoilerShield: boolean;
   revealed: string[];
   density: 'comfortable' | 'compact';
+  /** What plays at start-up: the last channel, a chosen channel, or a chosen sport. */
+  /** Toast what each flag was while watching a live NFL / college football / NHL game (ESPN play-by-play). */
+  penaltyAlerts?: boolean;
+  startup: 'last' | 'channel' | 'sport';
+  startChannel?: string;
+  startSport?: string;
+  /** The one-time "start on…" question on Live TV was answered or closed. */
+  startupAsked?: boolean;
   /** Dark, light, or follow the operating system. */
   theme: 'dark' | 'light' | 'system';
   accent: string;
@@ -170,6 +178,7 @@ export const DEFAULT_SETTINGS: Settings = {
   revealed: [],
   density: 'comfortable',
   theme: 'dark',
+  startup: 'last',
   accent: '#ff4d4d',
   guideZoom: 60,
   locked: [],

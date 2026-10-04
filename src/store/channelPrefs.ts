@@ -24,6 +24,9 @@ export interface ChannelPrefs extends OrgPrefs {
   railGroup: string;
   /** Rail folds the user opened/closed: country code (or '~sports') → open. Unset = default. */
   railFolds: Record<string, boolean>;
+  /** Guide: sport filter ('' = everything, 'any' = all sports, or a sport key) and row order. */
+  guideSport: string;
+  guideSort: 'live' | 'lineup' | 'name';
 }
 
 export const DEFAULT_CHANNEL_PREFS: ChannelPrefs = {
@@ -38,6 +41,8 @@ export const DEFAULT_CHANNEL_PREFS: ChannelPrefs = {
   railCollapsed: false,
   railGroup: 'all',
   railFolds: {},
+  guideSport: '',
+  guideSort: 'live',
 };
 
 export const useChannelPrefs = createPersisted<ChannelPrefs>({

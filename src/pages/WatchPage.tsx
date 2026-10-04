@@ -20,6 +20,8 @@ import { ChannelList } from '../components/channels/ChannelList';
 import { GroupRail, type RailItem } from '../components/channels/GroupRail';
 import { GroupPicker, GroupPickerAuto } from '../components/channels/GroupPicker';
 import { useSportRail } from '../components/channels/useSportRail';
+import { StartUpAsk, useStartUp } from '../components/tv/StartUp';
+import { usePenaltyAlerts } from '../lib/penalty';
 import { SPORTS, sportInfo, type SportKey } from '../lib/sportsOf';
 import { countryName, defaultGroupLabel } from '../lib/channelOrg';
 import { QualityButton } from '../components/channels/ChannelMenu';
@@ -68,6 +70,7 @@ export default function WatchPage() {
   const now = useNow(30_000);
   const minute = Math.floor(now / 60_000) * 60_000;
   const sports = useSportRail(live, org, minute);
+  useStartUp(live, sports);
   // Re-render while the banner shows so its clock/progress is current and it hides on time.
   const [, setBannerTick] = useState(0);
   /** Desktop mini player: shrink to a small always-on-top window in theater mode. */
@@ -246,6 +249,7 @@ export default function WatchPage() {
       return !!m && ids.includes(m);
     });
   }, [games, channels, overrides, current, personal]);
+  usePenaltyAlerts(liveGame);
 
   // Group rail: All, Favorites, Recently watched, My Channels, Sports (one row per sport), then the
   // visible groups folded by country (home country open).
@@ -303,7 +307,13 @@ export default function WatchPage() {
     }
     return items;
   }, [live, list, groups, favorites, recent, personalChannels, sports, railFolds, railGroup]);
-  const rail = railItems.some((i) => i.key === railGroup && !i.fold && !i.dim) || groups.some((g) => g.key === railGroup) ? railGroup : 'all';
+  const rail = railGroup === 'sport:live' || railItems.some((i) => i.key === railGroup && !i.fold && !i.dim) || groups.some((g) => g.key === railGroup) ? railGroup : 'all';
+  const liveSportIds = useMemo(() => {
+    const seen = new Set<string>();
+    for (const sp of SPORTS) for (const id of sports.get(sp.key)?.live ?? []) seen.add(id);
+    return [...seen];
+  }, [sports]);
+  const pickRail = (k: string) => { setFilter(''); setChannelPrefs({ railGroup: k }); };
   const toggleFold = (key: string) => {
     const code = key.startsWith('fold:') ? key.slice(5) : key;
     const cur = key.startsWith('fold:') ? !!railItems.find((i) => i.key === key)?.open : (railFolds[code] ?? true);
@@ -323,12 +333,16 @@ export default function WatchPage() {
     if (rail === 'fav') return list.filter((c) => isFavorite(favorites, c));
     if (rail === 'recent') return recent.map((id) => list.find((c) => c.id === id)).filter((c): c is Channel => !!c);
     if (rail === 'mine') return personalChannels;
+    if (rail === 'sport:live') {
+      const byId = new Map(live.map((c) => [c.id, c]));
+      return liveSportIds.map((id) => byId.get(id)).filter((c): c is (typeof live)[number] => !!c);
+    }
     if (rail.startsWith('sport:')) {
       const byId = new Map(live.map((c) => [c.id, c]));
       return (sports.get(rail.slice(6) as SportKey)?.ids ?? []).map((id) => byId.get(id)).filter((c): c is (typeof live)[number] => !!c);
     }
     return live.filter((c) => c.groupKey === rail);
-  }, [filter, list, live, rail, favorites, recent, personalChannels, sports]);
+  }, [filter, list, live, rail, favorites, recent, personalChannels, sports, liveSportIds]);
 
   if (!current) {
     return (
@@ -357,8 +371,8 @@ export default function WatchPage() {
     </>
   );
   const toggleTheater = () => useApp.setState((st) => ({ theater: !st.theater }));
-  const railLabel = rail.startsWith('sport:') ? `${sportInfo(rail.slice(6) as SportKey).icon} ${sportInfo(rail.slice(6) as SportKey).label}` : railItems.find((i) => i.key === rail)?.label ?? groups.find((g) => g.key === rail)?.label ?? 'All channels';
-  const liveInRail = rail.startsWith('sport:') ? sports.get(rail.slice(6) as SportKey)?.live.size ?? 0 : 0;
+  const railLabel = rail === 'sport:live' ? '🔴 Sports on now' : rail.startsWith('sport:') ? `${sportInfo(rail.slice(6) as SportKey).icon} ${sportInfo(rail.slice(6) as SportKey).label}` : railItems.find((i) => i.key === rail)?.label ?? groups.find((g) => g.key === rail)?.label ?? 'All channels';
+  const liveInRail = rail === 'sport:live' ? liveSportIds.length : rail.startsWith('sport:') ? sports.get(rail.slice(6) as SportKey)?.live.size ?? 0 : 0;
 
   return (
     <div className={`watch ${guideOpen ? 'tvGuideOpen' : ''}`}>
@@ -404,6 +418,28 @@ export default function WatchPage() {
           </div>
         </div>
       </section>
+
+      <StartUpAsk current={current} sportsWithChannels={SPORTS.filter((x) => sports.get(x.key)!.ids.length).map((x) => x.key)} />
+      {[...sports.values()].some((b) => b.ids.length) && (
+        <nav className="sportBar" aria-label="Sports">
+          <button className={`sportTab live ${rail === 'sport:live' ? 'on' : ''}`} aria-pressed={rail === 'sport:live'} onClick={() => pickRail('sport:live')}>
+            <span className="sportIcon" aria-hidden>🔴</span><span><b>On now</b><small>{liveSportIds.length} live</small></span>
+          </button>
+          {SPORTS.filter((sp) => sports.get(sp.key)!.ids.length).map((sp) => {
+            const b = sports.get(sp.key)!;
+            const key = `sport:${sp.key}`;
+            return (
+              <button key={sp.key} className={`sportTab ${rail === key ? 'on' : ''}`} aria-pressed={rail === key} onClick={() => pickRail(key)}>
+                <span className="sportIcon" aria-hidden>{sp.icon}</span>
+                <span><b>{sp.label}</b><small>{b.live.size ? <em>{b.live.size} live</em> : null}{b.live.size ? ' · ' : ''}{b.ids.length}</small></span>
+              </button>
+            );
+          })}
+          <button className={`sportTab all ${!rail.startsWith('sport:') ? 'on' : ''}`} aria-pressed={!rail.startsWith('sport:')} onClick={() => pickRail('all')}>
+            <span className="sportIcon" aria-hidden>📺</span><span><b>All TV</b><small>{list.length.toLocaleString()}</small></span>
+          </button>
+        </nav>
+      )}
 
       <div className={`lineup ${railCollapsed ? 'railCollapsed' : ''}`}>
         <GroupRail

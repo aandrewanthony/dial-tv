@@ -25,6 +25,7 @@ import { GroupManager } from '../components/channels/GroupManager';
 import { GroupPicker } from '../components/channels/GroupPicker';
 import { GuideDataPanel, GuideMappingPanel } from './GuideSettings';
 import { RemoteSettings } from './RemoteSettings';
+import { StartUpSetting } from '../components/tv/StartUp';
 
 type Tab = 'sources' | 'channels' | 'mapping' | 'playback' | 'sports' | 'parental' | 'remote' | 'appearance' | 'backup';
 const TABS: [Tab, string][] = [
@@ -252,6 +253,7 @@ function Choice<T extends string>({ k, value, options, onPick, disabled }: { k: 
 const HW_NAMES: Record<string, string> = { h264_nvenc: 'NVIDIA NVENC', h264_qsv: 'Intel Quick Sync', h264_amf: 'AMD AMF', h264_videotoolbox: 'Apple VideoToolbox' };
 
 function Playback() {
+  const startChannels = useOrganized().live;
   const decoder = useApp((s) => s.settings.decoder);
   const n = useApp((s) => s.settings.decoderChannels.length);
   const pb = useApp((s) => s.settings.playback ?? DEFAULT_PLAYBACK);
@@ -276,6 +278,7 @@ function Playback() {
     <div className="settingsCol">
       <section className="panel pbPanel">
         <h2>Playback</h2>
+        <StartUpSetting channels={startChannels} />
         <p className="muted">Changes apply right away: the channel that is playing re-tunes (movies continue where they were).</p>
         <div className="setting">
           <div><b>Buffer</b><span>{BUFFER_HELP[prof]}</span></div>
@@ -344,6 +347,7 @@ function SportsSettings() {
       <section className="panel">
         <h2>Alerts</h2>
         <div className="setting"><div><b>Clutch alerts</b><span>Pop up when a live game gets close late (one-score 4th quarter, OT, tied in the 9th…)</span></div><Toggle label="Clutch alerts" on={settings.clutchAlerts} onChange={(v) => setSettings({ clutchAlerts: v })} /></div>
+        <div className="setting"><div><b>Penalty alerts</b><span>While you watch a live NFL, college football or NHL game, show what each flag was (from ESPN’s live play-by-play; a tiny request every 20 s, only for that game)</span></div><Toggle label="Penalty alerts" on={settings.penaltyAlerts !== false} onChange={(v) => setSettings({ penaltyAlerts: v })} /></div>
         <div className="setting"><div><b>Auto-switch</b><span>Jump the player to a clutch game automatically when it involves your team or is a thriller</span></div><Toggle label="Auto-switch" on={settings.autoSwitch} onChange={(v) => setSettings({ autoSwitch: v })} /></div>
         <div className="setting"><div><b>System notifications</b><span>Reminders, clutch and red-zone alerts even when the window is in the background</span></div>
           <Toggle label="System notifications" on={settings.notifications} onChange={async (v) => setSettings({ notifications: v ? await requestNotifyPermission() : false })} /></div>

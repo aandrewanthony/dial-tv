@@ -14,7 +14,9 @@
  */
 import { create } from 'zustand';
 import type { Channel, Program } from '../types';
-import { isLive, orderedChannels, registerProgramIndex, useApp } from './app';
+import { dismissKey, isLive, orderedChannels, registerProgramIndex, useApp } from './app';
+import { isOnlineGuideUrl, lineupCountries, ONLINE_ID, onlineGuideUrl } from '../lib/onlineGuide';
+import { localeCountry } from '../lib/channelOrg';
 import { isDesktop } from '../lib/net';
 import { decodeGuide, DEFAULT_DAYS, EpgMatcher, rowFields, type DecodedGuide, type GuideCache, type GuideSourceMeta, type Resolved } from '../workers/epgCore';
 import { clearGuideCache, readGuideCache, readGuidePrefs, writeGuidePrefs } from '../workers/guideDb';
@@ -32,9 +34,11 @@ export interface GuidePrefs {
   days: number;
   /** Playlist re-download policy (a newly added playlist always loads right away). */
   playlistRefresh: PlaylistRefresh;
+  /** Add the free online guide (lib/onlineGuide.ts) when the playlist's own guide is missing or covers too little. */
+  online: boolean;
 }
 
-const DEFAULT_PREFS: GuidePrefs = { refresh: '12h', days: DEFAULT_DAYS, playlistRefresh: 'manual' };
+const DEFAULT_PREFS: GuidePrefs = { refresh: '12h', days: DEFAULT_DAYS, playlistRefresh: 'manual', online: true };
 
 /** Guide preferences, saved in the guide's own database (workers/guideDb.ts). */
 export const useGuidePrefs = Object.assign(create<GuidePrefs>(() => ({ ...DEFAULT_PREFS })), { ready: Promise.resolve() });
@@ -50,7 +54,7 @@ useGuidePrefs.ready = (async () => {
   } catch {
     return; // unreadable: run on defaults and never overwrite what's stored
   }
-  useGuidePrefs.subscribe((v) => void writeGuidePrefs({ refresh: v.refresh, days: v.days, playlistRefresh: v.playlistRefresh }).catch(() => undefined));
+  useGuidePrefs.subscribe((v) => void writeGuidePrefs({ refresh: v.refresh, days: v.days, playlistRefresh: v.playlistRefresh, online: v.online }).catch(() => undefined));
 })();
 
 export interface GuideState {
@@ -213,6 +217,7 @@ export async function remap(): Promise<void> {
   useApp.setState({ programs, unmatchedEpg });
   useGuide.setState((s) => ({ matched, liveChannels: shownTotal, needsReload, rev: s.rev + 1 }));
   if (needsReload) setTimeout(maybeAutoRefresh, 2000);
+  setTimeout(ensureOnlineGuide, 1000);
 }
 
 let remapTimer: ReturnType<typeof setTimeout> | null = null;
@@ -279,10 +284,34 @@ export async function initGuide(): Promise<void> {
   await applyCache(cache);
   useGuide.setState({ ready: true });
   await useGuidePrefs.ready;
+  ensureOnlineGuide();
   maybeAutoRefresh();
   if (refreshTimer) clearInterval(refreshTimer);
   // Re-check the policy now and then while the app stays open (it only downloads when stale).
   refreshTimer = setInterval(maybeAutoRefresh, 10 * 60_000);
+}
+
+/**
+ * Online guide: when no own guide source is enabled, or the loaded guide lists under half of the
+ * channels, add the free online guide for the lineup's countries (it then downloads by itself).
+ */
+export function ensureOnlineGuide() {
+  if (!useGuidePrefs.getState().online) return;
+  const app = useApp.getState();
+  if (!app.hydrated || app.loadingSources) return;
+  const live = liveChannels();
+  if (!live.length) return;
+  const g = useGuide.getState();
+  const own = app.epgSources.filter((e) => e.enabled && !isOnlineGuideUrl(e.url));
+  const weak = !own.length || (g.loaded && !g.loading && g.liveChannels > 0 && g.matched / g.liveChannels < 0.5);
+  if (!weak) return;
+  const add = lineupCountries(live, localeCountry())
+    .map((cc) => ({ cc, url: onlineGuideUrl(cc)! }))
+    .filter((x) => !app.epgSources.some((e) => e.url === x.url) && !app.dismissedEpgUrls.includes(x.url) && !app.dismissedEpgUrls.includes(dismissKey(x.url)));
+  if (!add.length) return;
+  app.update((st) => ({
+    epgSources: [...st.epgSources, ...add.map((x) => ({ id: ONLINE_ID(x.cc), name: `Online guide · ${x.cc}`, kind: 'xmltv-url' as const, url: x.url, enabled: true }))],
+  }));
 }
 
 let lastAutoGuide = 0;

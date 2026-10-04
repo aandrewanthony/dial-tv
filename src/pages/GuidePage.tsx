@@ -11,6 +11,9 @@ import { useTv } from '../store/tv';
 import { asChannel, personalPrograms, TvMark, usePersonalChannels } from '../components/tv/personal';
 import { cancelGuideLoad, guideProgressText, guideStatusText, loadGuide, useGuide } from '../store/guide';
 import { RecordButton } from '../components/tv/RecordButton';
+import { SPORTS, sportOfProgram, sportsOfName } from '../lib/sportsOf';
+import { setChannelPrefs, useChannelPrefs } from '../store/channelPrefs';
+import type { OrgChannel } from '../lib/channelOrg';
 
 const ZOOM_PX: Record<30 | 60 | 120, number> = { 30: 9, 60: 5, 120: 3 }; // px per minute
 const CH_COL = 190;
@@ -91,7 +94,8 @@ export default function GuidePage() {
   const pendingJump = useRef<number | undefined>(paramTime(param));
   const [jumpSeq, setJumpSeq] = useState(0);
   const [sel, setSel] = useState<{ p: Program; ch?: Channel } | null>(null);
-  const [sportsOnly, setSportsOnly] = useState(false);
+  // Sport filter ('' = all, 'any' = any sport) and row order, remembered (store/channelPrefs.ts).
+  const { guideSport: sport, guideSort: sort } = useChannelPrefs(useShallow((s) => ({ guideSport: s.guideSport, guideSort: s.guideSort })));
   const [favOnly, setFavOnly] = useState(false);
   const [group, setGroup] = useState('');
   const [q, setQ] = useState('');
@@ -120,15 +124,34 @@ export default function GuidePage() {
     const favs = new Set(favorites);
     const n = q.trim().toLowerCase();
     const base: Channel[] = [...live.filter((c) => (!group || c.groupKey === group) && (!favOnly || favs.has(c.id) || c.memberIds?.some((m) => favs.has(m)))), ...(group || favOnly ? [] : personalChannels)];
-    return base.filter((c) => {
-      if (n && !c.name.toLowerCase().includes(n) && String(c.number) !== n) return false;
-      if (sportsOnly) {
-        const l = personalByDay.get(c.id) ?? index.get(c.id);
-        if (!l || !slice(l, day, dayEnd).some((p) => p.isSports)) return false;
+    const isGame = (p: Program) => p.isSports || /sport/i.test(p.category);
+    const sportsToday = (c: Channel): Set<string> => {
+      const out = new Set<string>();
+      const o = c as Partial<OrgChannel>;
+      if (o.category === 'Sports') for (const k of sportsOfName(o.displayName ?? c.name, o.rawGroup, o.country)) out.add(k);
+      for (const p of slice(personalByDay.get(c.id) ?? index.get(c.id), day, dayEnd)) {
+        if (!isGame(p)) continue;
+        out.add('any');
+        const k = sportOfProgram(p.title, p.category, o.country);
+        if (k) out.add(k);
       }
+      if (o.category === 'Sports') out.add('any');
+      return out;
+    };
+    const kept = base.filter((c) => {
+      if (n && !c.name.toLowerCase().includes(n) && String(c.number) !== n) return false;
+      if (sport && !sportsToday(c).has(sport)) return false;
       return true;
     });
-  }, [live, personalChannels, group, favOnly, favorites, q, sportsOnly, personalByDay, index, day, dayEnd]);
+    if (sort === 'lineup') return kept;
+    if (sort === 'name') return [...kept].sort((a, b) => a.name.localeCompare(b.name));
+    // Sports on now first (a game airing right now), then the rest in lineup order.
+    const t = Date.now();
+    const onNow = (c: Channel) => slice(personalByDay.get(c.id) ?? index.get(c.id), t, t + 1).some(isGame);
+    const live1 = kept.filter(onNow);
+    const ids = new Set(live1.map((c) => c.id));
+    return [...live1, ...kept.filter((c) => !ids.has(c.id))];
+  }, [live, personalChannels, group, favOnly, favorites, q, sport, sort, personalByDay, index, day, dayEnd]);
 
   // Which rows have listings today (compact "No listings" rows otherwise).
   const filled = useMemo(() => rows.map((c) => slice(listOf(c.id), day, dayEnd).length > 0), [rows, index, personalByDay, day, dayEnd]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -214,15 +237,26 @@ export default function GuidePage() {
           {([30, 60, 120] as const).map((z) => (
             <button key={z} className={zoom === z ? 'on' : ''} onClick={() => update((st) => ({ settings: { ...st.settings, guideZoom: z } }))}>{z === 120 ? '2 hr' : `${z} min`}</button>
           ))}
-          <button className={sportsOnly ? 'on' : ''} onClick={() => setSportsOnly(!sportsOnly)}><Trophy /> Sports</button>
           <button className={favOnly ? 'on' : ''} onClick={() => setFavOnly(!favOnly)} aria-pressed={favOnly}><Heart /> Favorites</button>
         </div>
       </div>
+      <nav className="sportBar guideSports" aria-label="Guide by sport">
+        <button className={`sportTab ${!sport ? 'on' : ''}`} aria-pressed={!sport} onClick={() => setChannelPrefs({ guideSport: '' })}><span className="sportIcon" aria-hidden>📺</span><span><b>Everything</b></span></button>
+        <button className={`sportTab ${sport === 'any' ? 'on' : ''}`} aria-pressed={sport === 'any'} onClick={() => setChannelPrefs({ guideSport: 'any' })}><span className="sportIcon" aria-hidden><Trophy /></span><span><b>All sports</b></span></button>
+        {SPORTS.filter((x) => x.key !== 'networks').map((x) => (
+          <button key={x.key} className={`sportTab ${sport === x.key ? 'on' : ''}`} aria-pressed={sport === x.key} onClick={() => setChannelPrefs({ guideSport: x.key })}><span className="sportIcon" aria-hidden>{x.icon}</span><span><b>{x.label}</b></span></button>
+        ))}
+      </nav>
       <div className="guideFilters">
         <label className="guideSearch"><Search /><input placeholder="Filter channels" aria-label="Filter channels" value={q} onChange={(e) => setQ(e.target.value)} />{q && <button className="icon" aria-label="Clear filter" onClick={() => setQ('')}><X /></button>}</label>
         <select className="field guideGroup" aria-label="Channel group" value={group} onChange={(e) => setGroup(e.target.value)}>
           <option value="">All groups</option>
           {groups.map((g) => <option key={g.key} value={g.key}>{g.label} ({g.count})</option>)}
+        </select>
+        <select className="field guideSort" aria-label="Sort channels" value={sort} onChange={(e) => setChannelPrefs({ guideSort: e.target.value as typeof sort })}>
+          <option value="live">Sports on now first</option>
+          <option value="lineup">Channel order</option>
+          <option value="name">A–Z</option>
         </select>
         {hasSource && <GuideStatus compact />}
       </div>
@@ -269,7 +303,7 @@ export default function GuidePage() {
       </div>
       {!rows.length && (
         <p className="muted">
-          {q || group || favOnly ? 'No channels match these filters.' : sportsOnly ? 'No sports programming found in the guide for this day.' : 'No channels yet. Add your playlist on the Watch page or in Settings.'}
+          {q || group || favOnly ? 'No channels match these filters.' : sport ? 'Nothing for this sport in the guide on this day.' : 'No channels yet. Add your playlist on the Watch page or in Settings.'}
         </p>
       )}
       {sel && <ProgramDrawer p={sel.p} rowChannel={sel.ch} onClose={() => setSel(null)} />}

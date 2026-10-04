@@ -1181,3 +1181,26 @@ button.recPlay svg { width: 14px; height: 14px; margin-left: 2px; }
 .remoteDevice > div { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .remoteDevice small { color: var(--muted); font-size: 12px; }
 @media (max-width: 520px) { .qrCode { width: 160px; height: 160px; } }
+
+/* ---------- Live TV: sports tab bar (prominent sort by sport) ---------- */
+.sportBar { display: flex; gap: 8px; margin-top: 18px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.sportTab { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--text); text-align: left; min-width: 128px; }
+.sportTab:hover { border-color: var(--line2); background: var(--panel2); }
+.sportTab .sportIcon { font-size: 26px; line-height: 1; }
+.sportTab b { display: block; font-size: 13.5px; font-weight: 800; }
+.sportTab small { display: block; font: 700 10.5px var(--mono); color: var(--muted); margin-top: 2px; }
+.sportTab small em { font-style: normal; color: var(--accent); }
+.sportTab.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+.sportTab.on small, .sportTab.on small em { color: #fff; opacity: .9; }
+.sportTab.live .sportIcon { font-size: 18px; }
+.sportTab.all { margin-left: auto; }
+.startAsk { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 14px; padding: 10px 14px; border: 1px solid var(--line2); border-radius: 12px; background: var(--panel); }
+.startAsk b { font-size: 13px; }
+.startAsk .chips { flex: 1; }
+.startSetting .col { align-items: flex-end; }
+.guideSports { margin: 0 0 12px; }
+.guideSports .sportTab { min-width: 0; padding: 7px 12px 7px 9px; gap: 7px; }
+.guideSports .sportTab .sportIcon { font-size: 18px; display: inline-grid; place-items: center; }
+.guideSports .sportTab .sportIcon svg { width: 17px; height: 17px; }
+.guideSports .sportTab b { font-size: 12.5px; }
+select.field.guideSort { flex: 0 0 auto; width: auto; }

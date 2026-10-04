@@ -40,7 +40,7 @@ const RULES: [SportKey, RegExp][] = [
   ['baseball', /\bmlb\b|baseball|extra innings|\bmilb\b|world series/],
   ['hockey', /\bnhl\b|hockey|center ice|\bkhl\b|\bahl\b|stanley cup/],
   ['soccer', /soccer|f[uú]tbol|futebol|premier league|\bepl\b|la ?liga|serie a\b|bundesliga|ligue 1|champions league|europa league|\bucl\b|\bmls\b|\bbein\b|\btudn\b|deportes|\bfifa\b|\buefa\b|eredivisie|liga mx|\bcopa\b|golazo|gol ?tv|\bspfl\b|\befl\b|\bfa cup\b|world cup|calcio/],
-  ['college', /sec network|\bsecn\b|acc network|\baccn\b|big ten|\bbtn\b|pac[- ]?12|longhorn network|\bespnu\b|\bncaa\b|college/],
+  ['college', /\bb1g\b|sec network|\bsecn\b|acc network|\baccn\b|big ten|\bbtn\b|pac[- ]?12|longhorn network|\bespnu\b|\bncaa\b|college/],
   ['tennis', /tennis|\bwta\b|\batp\b|wimbledon|roland garros|us open tennis/],
   ['golf', /golf|\bpga\b|\blpga\b|\bliv\b|masters tournament|ryder cup/],
   ['fighting', /\bufc\b|boxing|\bmma\b|bellator|\bpfl\b|fight|top rank|\bpbc\b|\bppv\b/],

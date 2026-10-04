@@ -10,7 +10,7 @@ import { Toggle } from '../components/ui';
 import { ChannelPicker } from '../components/ChannelPicker';
 import { redactUrl, safeUrl } from '../lib/url';
 import { isDesktop } from '../lib/net';
-import { fmtCount, guideMatch, loadGuide, useGuide, useGuidePrefs, type GuideRefresh, type PlaylistRefresh } from '../store/guide';
+import { ensureOnlineGuide, fmtCount, guideMatch, loadGuide, useGuide, useGuidePrefs, type GuideRefresh, type PlaylistRefresh } from '../store/guide';
 import { MAX_DAYS } from '../workers/epgCore';
 import { GuideStatus } from './GuidePage';
 
@@ -79,6 +79,10 @@ export function GuideDataPanel() {
       {err && <p className="err">{err}</p>}
 
       <div className="guidePrefs">
+        <div className="setting">
+          <div><b>Online guide</b><span>Free listings from epgshare01.online for your channels’ countries, added automatically when your playlist has no guide or its guide misses most channels.</span></div>
+          <Toggle on={prefs.online} label="Online guide" onChange={(v) => { useGuidePrefs.setState({ online: v }); if (v) ensureOnlineGuide(); }} />
+        </div>
         <div className="setting">
           <div><b>Keep the guide fresh</b><span>The guide re-downloads in the background when the saved copy is older than this.</span></div>
           <div className="chips">
