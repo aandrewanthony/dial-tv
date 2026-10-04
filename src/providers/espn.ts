@@ -159,6 +159,15 @@ export const espnProvider: SportsProvider = {
   },
 };
 
+/** Raw game summary (play-by-play, drives, header) for an event id like "nfl:401…"; throws when not OK. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function gameSummary(eventId: string, signal?: AbortSignal): Promise<any> {
+  const [league, id] = eventId.split(':') as [League, string];
+  const res = await fetch(`${BASE}/${PATHS[league]}/summary?event=${encodeURIComponent(id)}`, { signal });
+  if (!res.ok) throw new Error(`ESPN summary ${res.status}`);
+  return res.json();
+}
+
 /** Live win probability (home %, 0–1) from the game summary endpoint, if available. */
 export async function winProbability(ev: SportEvent, signal?: AbortSignal): Promise<number[] | null> {
   const [league, id] = ev.id.split(':') as [League, string];
