@@ -1,24 +1,63 @@
 name: Desktop apps
 # Builds the Mac (Apple Silicon + Intel) and Windows apps, then TESTS the packaged Mac apps on real
 # Macs of each kind with the stream lab: every broadcast format must play with picture AND sound.
-# Run from the Actions tab ("Run workflow"), or push a tag like v0.4.0 to attach them to a draft release.
+#
+# COST: private-repo minutes are billed; macOS minutes count 10x, Windows 2x.
+#   Run workflow (manual) = Mac build only by default (~15 Mac min ≈ 150 billed). Tick boxes to add tests.
+#   Tag push (v*)          = Mac build + Apple Silicon test + Windows (~25 Mac min + ~10 Win ≈ 270 billed).
+#   The Intel Mac test only runs when ticked on a manual run.
+# Don't trigger runs casually: verify on Windows locally first and batch fixes into one release.
 on:
   workflow_dispatch:
+    inputs:
+      mac_test_arm:
+        description: Test the Apple Silicon app on a real Mac (+~8 Mac min ≈ 80 billed)
+        type: boolean
+        default: false
+      mac_test_intel:
+        description: Test the Intel app on a real Intel Mac (+~8 Mac min ≈ 80 billed)
+        type: boolean
+        default: false
+      windows:
+        description: Build + install-test Windows (+~10 Windows min ≈ 20 billed)
+        type: boolean
+        default: false
   push:
     tags: ['v*']
 
 permissions:
   contents: write
 
+# A newer run replaces an older one still going (no paying for superseded builds).
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Decides which (expensive) Mac test jobs run: tags test Apple Silicon; manual runs test only what's ticked.
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+      any: ${{ steps.m.outputs.any }}
+    steps:
+      - id: m
+        run: |
+          items=()
+          if [ "${{ startsWith(github.ref, 'refs/tags/') || inputs.mac_test_arm == true }}" = "true" ]; then items+=('{"runner":"macos-latest","zip":"arm64"}'); fi
+          if [ "${{ inputs.mac_test_intel == true }}" = "true" ]; then items+=('{"runner":"macos-15-intel","zip":"x64"}'); fi
+          echo "matrix=[$(IFS=,; echo "${items[*]}")]" >> "$GITHUB_OUTPUT"
+          if [ ${#items[@]} -gt 0 ]; then echo "any=true" >> "$GITHUB_OUTPUT"; else echo "any=false" >> "$GITHUB_OUTPUT"; fi
+
   mac-build:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - run: npm test
       - name: Stop Spotlight indexing (it holds mounted DMG volumes busy)
         run: sudo mdutil -a -i off || true
       - name: Build Dial TV.app (arm64 + x64) + DMGs
@@ -53,15 +92,13 @@ jobs:
             release/*.zip
 
   mac-test:
-    needs: mac-build
+    needs: [plan, mac-build]
+    if: needs.plan.outputs.any == 'true'
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: macos-latest       # Apple Silicon
-            zip: arm64
-          - runner: macos-15-intel     # Intel
-            zip: x64
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -97,6 +134,8 @@ jobs:
           node tests/streamlab/check.mjs 9350
 
   windows:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.windows == true
+    timeout-minutes: 30
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -127,8 +166,9 @@ jobs:
           path: release/Dial-TV-*-win.zip
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [mac-test, windows]
+    if: startsWith(github.ref, 'refs/tags/') && !cancelled() && !failure()
+    needs: [mac-build, mac-test, windows]
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
