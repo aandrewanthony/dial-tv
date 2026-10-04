@@ -20,8 +20,9 @@ import { desktop, isDesktop, type DecoderInfo } from '../lib/net';
 import { BUFFER_HELP, bufferProfile, machineInfo, resolveComputer } from '../player/tuning';
 import { setChannelPrefs, useChannelPrefs } from '../store/channelPrefs';
 import type { OrgChannel } from '../lib/channelOrg';
-import { isFavorite, toggleFavorite, useOrganized } from '../components/channels/useOrganized';
+import { isFavorite, toggleFavorite, useHealthDeps, useOrganized } from '../components/channels/useOrganized';
 import { GroupManager } from '../components/channels/GroupManager';
+import { HideDeadSetting } from '../components/channels/DeadChannels';
 import { GroupPicker } from '../components/channels/GroupPicker';
 import { GuideDataPanel, GuideMappingPanel } from './GuideSettings';
 import { RemoteSettings } from './RemoteSettings';
@@ -38,7 +39,8 @@ const reload = () => setTimeout(() => void useApp.getState().loadSources(), 0);
 const setSettings = (p: Partial<Settings>) => useApp.getState().update((st) => ({ settings: { ...st.settings, ...p } }));
 const useOrdered = (includeHidden = false) => {
   const { channels, channelOrder, hidden } = useApp(useShallow((s) => ({ channels: s.channels, channelOrder: s.channelOrder, hidden: s.hidden })));
-  return useMemo(() => orderedChannels({ channels, channelOrder, hidden }, includeHidden), [channels, channelOrder, hidden, includeHidden]);
+  const healthDeps = useHealthDeps();
+  return useMemo(() => orderedChannels({ channels, channelOrder, hidden }, includeHidden), [channels, channelOrder, hidden, includeHidden, ...healthDeps]); // eslint-disable-line react-hooks/exhaustive-deps
 };
 
 export default function SettingsPage() {
@@ -136,7 +138,7 @@ function Channels() {
   const [grp, setGrp] = useState('*');
   const [picker, setPicker] = useState(false);
   const [guard, pinModal] = usePinGuard();
-  const { full, groups, org } = useOrganized();
+  const { full, groups, org, dead } = useOrganized();
   const merge = useChannelPrefs((s) => s.mergeDuplicates);
   const renumber = useChannelPrefs((s) => s.renumber);
   const inGroup = useMemo(() => (grp === '*' ? full : full.filter((c) => c.groupKey === grp)), [full, grp]);
@@ -164,6 +166,7 @@ function Channels() {
           <div><b>Renumber channels</b><span>Number your visible channels 1, 2, 3… in your order (typing a number tunes these).</span></div>
           <Toggle label="Renumber channels" on={renumber} onChange={(v) => setChannelPrefs({ renumber: v })} />
         </div>
+        <HideDeadSetting deadCount={dead.length} />
       </section>
       <GroupManager onChoose={() => setPicker(true)} />
       <section className="panel">

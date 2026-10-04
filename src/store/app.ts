@@ -11,6 +11,8 @@ import { parseM3U } from '../lib/m3u';
 import { HOUR } from '../lib/scheduler';
 import { applyPrefs, localeCountry, organize, orderGroups, type GroupInfo, type OrgChannel, type Organized } from '../lib/channelOrg';
 import { useChannelPrefs, type ChannelPrefs } from './channelPrefs';
+import { useStreamHealth } from './streamHealth';
+import { applyHealth, isChannelDead } from '../lib/streamHealth';
 
 export const SCHEMA_VERSION = 6;
 
@@ -625,6 +627,22 @@ const appliedCache = new Map<boolean, { deps: unknown[]; out: OrgChannel[] }>();
  * A logical channel keeps its id entry's id and tvg-id, so guide listings still resolve.
  */
 export function orderedChannels(s: ChannelSel, includeHidden = false, prefs: ChannelPrefs = useChannelPrefs.getState()): OrgChannel[] {
+  const base = lineupBeforeHealth(s, includeHidden, prefs);
+  if (!prefs.hideDead) return base;
+  // Hide dead channels (Settings → Channels): only from the visible lineup; the full list (channel
+  // manager, tuning by id) keeps them. Both get working variants ordered first.
+  const health = useStreamHealth.getState();
+  const deps = [base, health.version, prefs.keepDead];
+  const hit = healthCache.get(includeHidden);
+  if (hit && hit.deps.every((d, i) => d === deps[i])) return hit.out;
+  const out = applyHealth(base, health.urls, new Set(prefs.keepDead), !includeHidden);
+  healthCache.set(includeHidden, { deps, out });
+  return out;
+}
+const healthCache = new Map<boolean, { deps: unknown[]; out: OrgChannel[] }>();
+
+/** The visible lineup before dead channels are taken out (what the dead-channel checker walks). */
+export function lineupBeforeHealth(s: ChannelSel, includeHidden = false, prefs: ChannelPrefs = useChannelPrefs.getState()): OrgChannel[] {
   const org = organizedChannels(s, prefs);
   const deps = [org, s.channelOrder, s.hidden, prefs.hiddenGroups, prefs.groupOrder, prefs.groupNames, prefs.variantChoice, prefs.renumber];
   const hit = appliedCache.get(includeHidden);
@@ -633,6 +651,20 @@ export function orderedChannels(s: ChannelSel, includeHidden = false, prefs: Cha
   appliedCache.set(includeHidden, { deps, out });
   return out;
 }
+
+/** Visible channels the checker found dead (all links), minus the ones kept anyway. Empty when the feature is off. */
+export function deadChannels(s: ChannelSel, prefs: ChannelPrefs = useChannelPrefs.getState()): OrgChannel[] {
+  if (!prefs.hideDead) return [];
+  const base = lineupBeforeHealth(s, false, prefs);
+  const health = useStreamHealth.getState();
+  const deps = [base, health.version, prefs.keepDead];
+  if (deadCache && deadCache.deps.every((d, i) => d === deps[i])) return deadCache.out;
+  const keep = new Set(prefs.keepDead);
+  const out = base.filter((c) => !keep.has(c.id) && isChannelDead(c, health.urls));
+  deadCache = { deps, out };
+  return out;
+}
+let deadCache: { deps: unknown[]; out: OrgChannel[] } | undefined;
 
 /** Channel groups in the user's order, with labels (renames applied), counts and hidden flags. */
 export function channelGroups(s: ChannelSel, prefs: ChannelPrefs = useChannelPrefs.getState()): (GroupInfo & { hidden: boolean; defaultLabel: string })[] {

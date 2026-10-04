@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, Clock, Heart, History, Info, LayoutList, ListVideo, Pin, PinOff, Search, SlidersHorizontal, Tv } from 'lucide-react';
+import { Ban, CalendarDays, ChevronDown, ChevronUp, Clock, Heart, History, Info, LayoutList, ListVideo, Pin, PinOff, Search, SlidersHorizontal, Tv } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { desktop } from '../lib/net';
 import Player, { type PlayerHandle } from '../player/Player';
@@ -24,6 +24,7 @@ import { SPORTS, sportInfo, type SportKey } from '../lib/sportsOf';
 import { countryName, defaultGroupLabel } from '../lib/channelOrg';
 import { QualityButton } from '../components/channels/ChannelMenu';
 import { RecordButton } from '../components/tv/RecordButton';
+import { DeadBar } from '../components/channels/DeadChannels';
 import { applyRemoteCommand, remoteBridge, setRemoteHandler, type RemoteState, type RemoteTarget } from '../lib/remote';
 import type { Channel } from '../types';
 
@@ -38,7 +39,7 @@ const BANNER_MS = 4000;
  * The lineup is organized (lib/channelOrg.ts): duplicates merged, clean names, a group rail.
  */
 export default function WatchPage() {
-  const { live, full, groups, org } = useOrganized();
+  const { live, full, groups, org, dead } = useOrganized();
   const channels = useApp((s) => s.channels);
   const currentId = useApp((s) => s.currentId);
   const lastChannelId = useApp((s) => s.lastChannelId);
@@ -258,6 +259,7 @@ export default function WatchPage() {
       { key: 'recent', label: 'Recently watched', count: recent.filter((id) => list.some((c) => c.id === id)).length, icon: <Clock /> },
     ];
     if (personalChannels.length) items.push({ key: 'mine', label: 'My Channels', count: personalChannels.length, icon: <Tv /> });
+    if (dead.length) items.push({ key: 'dead', label: 'Dead channels', count: dead.length, icon: <Ban /> });
 
     // Sports: every sport is listed (greyed out when the lineup has none), when the lineup has any sports at all.
     if ([...sports.values()].some((b) => b.ids.length)) {
@@ -302,7 +304,7 @@ export default function WatchPage() {
       if (open) for (const g of gs) items.push({ key: g.key, label: childLabel(g), count: counts.get(g.key)!, child: true });
     }
     return items;
-  }, [live, list, groups, favorites, recent, personalChannels, sports, railFolds, railGroup]);
+  }, [live, list, groups, favorites, recent, personalChannels, sports, railFolds, railGroup, dead]);
   const rail = railItems.some((i) => i.key === railGroup && !i.fold && !i.dim) || groups.some((g) => g.key === railGroup) ? railGroup : 'all';
   const toggleFold = (key: string) => {
     const code = key.startsWith('fold:') ? key.slice(5) : key;
@@ -323,12 +325,13 @@ export default function WatchPage() {
     if (rail === 'fav') return list.filter((c) => isFavorite(favorites, c));
     if (rail === 'recent') return recent.map((id) => list.find((c) => c.id === id)).filter((c): c is Channel => !!c);
     if (rail === 'mine') return personalChannels;
+    if (rail === 'dead') return dead;
     if (rail.startsWith('sport:')) {
       const byId = new Map(live.map((c) => [c.id, c]));
       return (sports.get(rail.slice(6) as SportKey)?.ids ?? []).map((id) => byId.get(id)).filter((c): c is (typeof live)[number] => !!c);
     }
     return live.filter((c) => c.groupKey === rail);
-  }, [filter, list, live, rail, favorites, recent, personalChannels, sports]);
+  }, [filter, list, live, rail, favorites, recent, personalChannels, sports, dead]);
 
   if (!current) {
     return (
@@ -427,6 +430,7 @@ export default function WatchPage() {
             </label>
             <button className="ghost" onClick={() => setPickerOpen(true)} title="Choose countries and categories"><SlidersHorizontal /> Choose channels</button>
           </div>
+          {rail === 'dead' && !filter.trim() && <DeadBar dead={dead} />}
           <ChannelList
             rows={shown}
             currentId={current.id}

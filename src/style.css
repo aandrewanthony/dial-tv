@@ -1181,3 +1181,9 @@ button.recPlay svg { width: 14px; height: 14px; margin-left: 2px; }
 .remoteDevice > div { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .remoteDevice small { color: var(--muted); font-size: 12px; }
 @media (max-width: 520px) { .qrCode { width: 160px; height: 160px; } }
+
+/* Dead channels (Settings → Channels → Hide dead channels) */
+.deadBar { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.deadBar p { margin: 0; flex: 1; line-height: 1.45; }
+.deadBar button { flex: none; }
+.deadActions { justify-content: flex-end; gap: 8px; padding-bottom: 10px; }

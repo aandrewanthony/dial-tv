@@ -1,3 +1,4 @@
+import { useHealthDeps } from '../components/channels/useOrganized';
 import { useEffect, useMemo, useState } from 'react';
 import { Flame, Maximize2, Volume2, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
@@ -24,7 +25,8 @@ export default function MultiviewPage() {
   const [layout, setLayout] = useState<'2x2' | '1+3'>('2x2');
   const personalChannels = usePersonalChannels();
   // Live channels (no movies/episodes) and My Channels.
-  const list = useMemo(() => [...orderedChannels({ channels, channelOrder, hidden }), ...personalChannels], [channels, channelOrder, hidden, personalChannels]);
+  const healthDeps = useHealthDeps();
+  const list = useMemo(() => [...orderedChannels({ channels, channelOrder, hidden }), ...personalChannels], [channels, channelOrder, hidden, personalChannels, ...healthDeps]); // eslint-disable-line react-hooks/exhaustive-deps
   const live = useRankedGames((g) => g.state === 'in');
 
   const setSlot = (i: number, id: string | null) => {
