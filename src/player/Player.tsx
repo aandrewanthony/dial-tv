@@ -9,7 +9,7 @@ import { channelHeaders, desktop, isDesktop, type DecoderInfo, type StreamInfo }
 import { DEFAULT_PLAYBACK, useApp } from '../store/app';
 import { sniffStream, type Engine } from './detect';
 import { isHttpUrl, redactUrl, splitUserinfo } from '../lib/url';
-import { decoderOptions, gateOptions, hlsConfig, levelLimits, machineInfo, mpegtsConfig } from './tuning';
+import { decoderOptions, gateOptions, hlsConfig, hlsGateOptions, levelLimits, machineInfo, mpegtsConfig, type GateOptions } from './tuning';
 import { bufferedAhead, bufferedEnd, createGate, type Gate } from './gate';
 import VodControls from './VodControls';
 
@@ -298,6 +298,7 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
       }
       let playUrl = url;
       let kind: Engine;
+      let hlsGate: GateOptions | null = null;
       if (mode === 'decoder') {
         // Know first whether this is a movie (fixed length) or live; the decoder server reuses this
         // probe from its cache, so the provider still sees one connection at a time.
@@ -359,7 +360,10 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
         if (!HlsCtor || !HlsCtor.isSupported()) return fail('HLS is not supported in this browser');
         const hls = new HlsCtor(hlsConfig(pb, { vod, compact, startAt: vod ? startRef.current : 0 }));
         hlsRef.current = hls;
-        gate.noRebuffer(); // hls.js already starts segments behind live and rides out stalls itself
+        // Live: hold for a little more than a segment at the start and after stalls (see tuning.ts).
+        // Movies and low latency: hls.js handles stalls itself.
+        hlsGate = hlsGateOptions(pb, { vod });
+        if (hlsGate) gate.setOptions(hlsGate); else gate.noRebuffer();
         engineRef.current = `hls.js ${HlsCtor.version}`;
         setEngineLabel('hls');
         const E = HlsCtor.Events;
@@ -372,7 +376,11 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
           setLevel(hls.autoLevelEnabled ? -1 : hls.currentLevel);
         });
         hls.on(E.LEVEL_LOADED, (_e, data) => {
-          if (data.details && !data.details.live) markVod(data.details.totalduration); // HLS VOD playlist
+          if (data.details && !data.details.live) {
+            markVod(data.details.totalduration); // HLS VOD playlist: no live cushion
+            if (gate.holding) gate.release();
+            gate.noRebuffer();
+          }
         });
         hls.on(E.AUDIO_TRACKS_UPDATED, () => {
           setAudio(hls.audioTracks.map((t, i) => ({ id: i, label: t.name || t.lang || `Track ${i + 1}` })));
@@ -476,8 +484,8 @@ const Player = forwardRef<PlayerHandle, Props>(function Player({ channel, muted:
         };
         return;
       }
-      // hls.js starts segments behind live (its own cushion): holding it back only drifts it out of the playlist window.
-      if (hlsRef.current) { gate.cancel(); startPlay(); } else gate.start();
+      // Live HLS starts through its own (segment-sized) gate; movies and low latency start at once.
+      if (hlsRef.current && !hlsGate) { gate.cancel(); startPlay(); } else gate.start();
     })().catch((e) => fail(String(e?.message ?? e)));
 
     /** Unknown codecs and no sound: stop playback, probe once (one connection), then decide. */

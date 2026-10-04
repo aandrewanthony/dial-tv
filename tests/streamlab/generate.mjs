@@ -44,6 +44,8 @@ console.log('test media ready in', out);
 // test movies that Chromium plays natively (MP4 / HLS with AAC) for the seek / startAt checks.
 const more = {
   'live_h264_aac.ts': ['-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=500:sample_rate=48000', '-t', '60', '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '4M', '-maxrate', '4M', '-bufsize', '4M', '-g', '60', '-keyint_min', '60', '-sc_threshold', '0', '-c:a', 'aac', '-b:a', '128k', '-f', 'mpegts'],
+  // Low rendition of the same feed (same 2 s GOP, so segments line up) for the ABR channel.
+  'live_h264_aac_low.mp4': ['-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=500:sample_rate=48000', '-t', '60', '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '800k', '-maxrate', '800k', '-bufsize', '800k', '-g', '60', '-keyint_min', '60', '-sc_threshold', '0', '-c:a', 'aac', '-b:a', '128k'],
   'movie_h264_aac.mp4': ['-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=330:sample_rate=48000', '-t', '60', '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '3M', '-g', '50', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart'],
 };
 for (const [name, args] of Object.entries(more)) {

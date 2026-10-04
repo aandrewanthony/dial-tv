@@ -9,7 +9,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import ffmpeg from 'ffmpeg-static';
 
 const dir = 'tests/streamlab/media';
@@ -50,6 +50,12 @@ const SEED = Number(process.env.NET_SEED ?? 1234);
 function rng(seed) {
   let s = seed >>> 0;
   return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 2 ** 32; };
+}
+/** murmur3 finalizer: spreads nearby integers over the whole 32-bit range. */
+function mix32(h) {
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
 }
 const between = (r, [a, b]) => a + (b - a) * r();
 const fileRate = (file, secs = 60) => fs.statSync(file).size / secs; // all lab media is 60 s
@@ -100,16 +106,56 @@ function startHlsLive() {
   if (hlsLive || stopping || !fs.existsSync(src)) return;
   fs.rmSync(hlsLiveDir, { recursive: true, force: true });
   fs.mkdirSync(hlsLiveDir, { recursive: true });
-  hlsLive = spawn(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-re', '-stream_loop', '-1', '-i', src, '-c', 'copy', '-f', 'hls', '-hls_time', '4', '-hls_list_size', '6',
-    '-hls_flags', 'delete_segments+independent_segments+temp_file', '-hls_segment_filename', path.join(hlsLiveDir, 'seg%05d.ts'), path.join(hlsLiveDir, 'index.m3u8')], { windowsHide: true });
+  // Loop an MP4 remux, not the .ts: -stream_loop over MPEG-TS drops the first packet (the IDR
+  // keyframe) of every loop, so each 60 s seam handed Chromium P/B frames with no keyframe →
+  // PIPELINE_ERROR_DECODE once a minute (the "HLS decode error" in the buffering baseline).
+  const loopSrc = path.join(dir, 'live_h264_aac.loop.mp4');
+  if (!fs.existsSync(loopSrc) || fs.statSync(loopSrc).mtimeMs < fs.statSync(src).mtimeMs) {
+    spawnSync(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-i', src, '-c', 'copy', loopSrc], { windowsHide: true });
+  }
+  const input = fs.existsSync(loopSrc) ? loopSrc : src;
+  const hlsOut = (map, d) => ['-map', map, '-c', 'copy', '-f', 'hls', '-hls_time', '4', '-hls_list_size', '6',
+    '-hls_flags', 'delete_segments+independent_segments+temp_file', '-hls_segment_filename', path.join(d, 'seg%05d.ts'), path.join(d, 'index.m3u8')];
+  const args = ['-hide_banner', '-loglevel', 'error', '-re', '-stream_loop', '-1', '-i', input];
+  // ABR channel (master.m3u8): the same feed plus a 360p / 0.9 Mbps rendition from the same
+  // ffmpeg, so both renditions' segments share numbers and timestamps.
+  if (fs.existsSync(lowSrc)) {
+    fs.mkdirSync(path.join(hlsLiveDir, 'lo'), { recursive: true });
+    args.push('-re', '-stream_loop', '-1', '-i', lowSrc, ...hlsOut('0', hlsLiveDir), ...hlsOut('1', path.join(hlsLiveDir, 'lo')));
+  } else args.push(...hlsOut('0', hlsLiveDir));
+  hlsLive = spawn(ffmpeg, args, { windowsHide: true });
   hlsLive.on('close', () => { hlsLive = undefined; setTimeout(startHlsLive, 1000); });
 }
+const lowSrc = path.join(dir, 'live_h264_aac_low.mp4');
+const MASTER = '#EXTM3U\n#EXT-X-VERSION:3\n'
+  + '#EXT-X-STREAM-INF:BANDWIDTH=4400000,AVERAGE-BANDWIDTH=4200000,RESOLUTION=1280x720,CODECS="avc1.64001f,mp4a.40.2"\nindex.m3u8\n'
+  + '#EXT-X-STREAM-INF:BANDWIDTH=1000000,AVERAGE-BANDWIDTH=950000,RESOLUTION=640x360,CODECS="avc1.64001e,mp4a.40.2"\nlo/index.m3u8\n';
 const segDur = new Map(); // segment name → EXTINF seconds
+const hlsSessions = new Map(); // network profile → { base: first segment number, last: last request time }
 function serveHlsLive(req, res, prof, name) {
-  const f = path.join(hlsLiveDir, path.basename(name));
+  if (name === 'master.m3u8') {
+    hlsSessions.delete(prof); // a new viewing session (the ABR channel)
+    res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
+    return res.end(MASTER);
+  }
+  // The low rendition lives in lo/. Network capacity is absolute: a lo segment arrives at the
+  // same byte rate a hi one would (x the profile's speed), so switching down really helps.
+  const low = name.startsWith('lo/');
+  const f = path.join(hlsLiveDir, low ? 'lo' : '', path.basename(name));
   const n = /seg(\d+)\.ts$/.exec(name)?.[1];
-  const r = rng(SEED + (n ? +n : Math.floor(Date.now() / 1000)));
-  if (name === 'index.m3u8') {
+  // Impairments are numbered from the first segment a viewing session asks for (a session ends
+  // after 8 s without requests, or when the master playlist is loaded), so every run of a profile meets the same sequence of slow and
+  // fast segments however long the lab has been up: before/after runs are comparable.
+  const now = Date.now();
+  let s = hlsSessions.get(prof);
+  if (!s || now - s.last > 8000) { s = { base: null, last: now }; hlsSessions.set(prof, s); }
+  s.last = now;
+  if (n && s.base === null) s.base = +n;
+  // Hash the per-segment seed: an LCG's first outputs for consecutive seeds differ by only
+  // 1664525 / 2^32, so segments n, n+1, ... drew almost the same "random" numbers and the jitter
+  // profile ran in phases of hundreds of segments all fast or all slow-first-byte (~2.9 h cycle).
+  const r = rng(mix32(SEED + (n ? +n - s.base : Math.floor(now / 1000))));
+  if (path.basename(name) === 'index.m3u8') {
     return setTimeout(() => {
       if (res.destroyed) return;
       if (!fs.existsSync(f)) { res.writeHead(404); return res.end(); }
@@ -122,7 +168,7 @@ function serveHlsLive(req, res, prof, name) {
   if (!fs.existsSync(f)) { res.writeHead(404); return res.end(); }
   const buf = fs.readFileSync(f);
   const ttfb = (r() < prof.segSlow ? between(r, prof.segSlowTtfb) : between(r, prof.segTtfb)) * 1000;
-  const rate = (buf.length / (segDur.get(path.basename(name)) ?? 4)) * between(r, prof.segSpeed);
+  const rate = (low ? fileRate(path.join(dir, 'live_h264_aac.ts')) : buf.length / (segDur.get(path.basename(name)) ?? 4)) * between(r, prof.segSpeed);
   const wait = setTimeout(() => {
     if (res.destroyed) return;
     res.writeHead(200, { 'Content-Type': 'video/mp2t', 'Content-Length': buf.length, 'Cache-Control': 'no-store' });
@@ -142,6 +188,7 @@ for (const p of ['good', 'jitter', 'slow']) {
   const add = (name, url) => { m3u += `#EXTINF:-1 group-title="Net ${p}",${name}\n${url}\n`; };
   add(`NET ${p} TS H.264 + AAC`, `http://127.0.0.1:${PORT}/net/${p}/live/lab/h264-aac.ts`);
   add(`NET ${p} HLS H.264 live`, `http://127.0.0.1:${PORT}/net/${p}/hlslive/index.m3u8`);
+  if (fs.existsSync(lowSrc)) add(`NET ${p} HLS ABR 720p/360p`, `http://127.0.0.1:${PORT}/net/${p}/hlslive/master.m3u8`);
   add(`NET ${p} TS MPEG-2 1080i + AC-3`, `http://127.0.0.1:${PORT}/net/${p}/live/lab/mpeg2-ac3.ts`);
 }
 // VOD (movies / episodes) for the seek + startAt checks (vod.mjs).

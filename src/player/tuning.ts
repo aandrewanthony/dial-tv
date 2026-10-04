@@ -62,7 +62,7 @@ export interface BufferTuning {
 export const BUFFER_PROFILES: Record<BufferProfile, BufferTuning> = {
   'low-latency': { startGate: 0, rebuffer: 0.5, rebufferMax: 1, maxWait: 4, chase: true, syncAbove: 3, hlsSyncCount: 2, hlsForward: 8 },
   balanced: { startGate: 3, rebuffer: 1, rebufferMax: 2, maxWait: 3, chase: false, syncAbove: 20, hlsSyncCount: 3, hlsForward: 20 },
-  auto: { startGate: 6, rebuffer: 1.5, rebufferMax: 3, maxWait: 4, chase: false, syncAbove: 40, hlsSyncCount: 3, hlsForward: 30 },
+  auto: { startGate: 6, rebuffer: 1.5, rebufferMax: 3, maxWait: 4, chase: false, syncAbove: 40, hlsSyncCount: 2, hlsForward: 30 },
   smooth: { startGate: 10, rebuffer: 2, rebufferMax: 4, maxWait: 6, chase: false, syncAbove: 0, hlsSyncCount: 4, hlsForward: 45 },
   max: { startGate: 15, rebuffer: 3, rebufferMax: 6, maxWait: 8, chase: false, syncAbove: 0, hlsSyncCount: 5, hlsForward: 60 },
 };
@@ -90,13 +90,34 @@ export function gateOptions(pb: PlaybackSettings, ctx: Ctx): GateOptions {
   return { startGate: p.startGate, rebuffer: p.rebuffer, rebufferMax: p.rebufferMax, maxWait: p.maxWait };
 }
 
+/**
+ * Live HLS gate. hls.js appends whole segments, so on a connection that only just keeps up the
+ * browser resumes with one segment and freezes again at the next segment boundary (lab /net/slow:
+ * 11 short freezes per 2 min plus a 12 s jump when playback fell out of the playlist window).
+ * Holding for a bit more than one segment before starting, and again after a stall, rides out the
+ * slow segments instead (2 freezes, no jump). null = no gate (low latency: play at once, let
+ * hls.js handle stalls).
+ */
+const HLS_GATE: Record<BufferProfile, GateOptions | null> = {
+  'low-latency': null,
+  balanced: { startGate: 4, rebuffer: 4, rebufferMax: 6, maxWait: 6 },
+  auto: { startGate: 5, rebuffer: 5, rebufferMax: 8, maxWait: 8 },
+  smooth: { startGate: 8, rebuffer: 8, rebufferMax: 12, maxWait: 10 },
+  max: { startGate: 12, rebuffer: 12, rebufferMax: 16, maxWait: 12 },
+};
+export const hlsGateOptions = (pb: PlaybackSettings, ctx: Ctx): GateOptions | null => (ctx.vod ? null : HLS_GATE[bufferProfile(pb)]);
+
 /** hls.js config (merged over hls.js defaults). */
 export function hlsConfig(pb: PlaybackSettings, ctx: Ctx) {
   const prof = bufferProfile(pb);
   const p = BUFFER_PROFILES[prof];
-  // Measured in the lab: hls.js' own live defaults (start 3 segments behind the edge, 30 s ahead,
-  // its retry policies) already ride out slow segments; overriding them made jittery HLS worse.
-  // So only the profiles that ask for something different change them.
+  // Measured in the lab (buffer.mjs, /net/slow + /net/jitter, single-rendition and 720p/360p ABR):
+  // hls.js' defaults are kept for forward buffer (30 s), ABR (its 500 kbps first estimate starts
+  // low; stricter abrBandWidthFactor / UpFactor changed nothing) and load/retry policies (a slow
+  // first byte is not helped by retrying the same segment sooner). Auto only starts 2 segments
+  // behind the edge instead of 3: the live gate (hlsGateOptions) adds its cushion on top, and
+  // starting closer keeps that cushion inside the playlist window (no 12 s jumps, ~3.5 s less
+  // latency, less frozen time than 3 + gate).
   const cfg: Record<string, unknown> = {
     enableWorker: true,
     lowLatencyMode: true, // only acts on LL-HLS playlists (parts)
@@ -106,6 +127,7 @@ export function hlsConfig(pb: PlaybackSettings, ctx: Ctx) {
   if (ctx.vod && ctx.startAt && ctx.startAt > 0) cfg.startPosition = ctx.startAt;
   if (pb.startQuality === 'lowest') cfg.startLevel = 0;
   if (prof === 'low-latency') Object.assign(cfg, { liveSyncDurationCount: p.hlsSyncCount, liveMaxLatencyDurationCount: 5, maxLiveSyncPlaybackRate: 1.15, maxBufferLength: p.hlsForward });
+  if (prof === 'auto' && !ctx.vod) cfg.liveSyncDurationCount = p.hlsSyncCount;
   if (prof === 'smooth' || prof === 'max') Object.assign(cfg, { liveSyncDurationCount: p.hlsSyncCount, maxBufferLength: p.hlsForward, maxBufferSize: (prof === 'max' ? 120 : 90) * 1000 * 1000 });
   if (ctx.vod) cfg.maxBufferLength = Math.max(30, p.hlsForward);
   return cfg;

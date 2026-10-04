@@ -34,8 +34,10 @@ export interface Gate {
   start(): void;
   /** True while playback is held for the cushion. */
   readonly holding: boolean;
-  /** Let the engine handle stalls itself (hls.js keeps its own segment cushion). */
+  /** Let the engine handle stalls itself (no rebuffer holds). */
   noRebuffer(): void;
+  /** Switch to other cushion settings once the engine is known (live HLS has its own). */
+  setOptions(o: GateOptions): void;
   /** Stop holding and play now (the viewer pressed play). */
   release(): void;
   /** Stop holding without playing (pause pressed, seek, teardown). */
@@ -50,7 +52,8 @@ export interface GateHooks {
   nearEnd?(): boolean;
 }
 
-export function createGate(v: HTMLVideoElement, o: GateOptions, hooks: GateHooks): Gate {
+export function createGate(v: HTMLVideoElement, opts: GateOptions, hooks: GateHooks): Gate {
+  let o = opts;
   let holding = false;
   let started = false;
   let target = o.rebuffer;
@@ -100,6 +103,11 @@ export function createGate(v: HTMLVideoElement, o: GateOptions, hooks: GateHooks
     },
     get holding() { return holding; },
     noRebuffer() { rebuffer = false; },
+    setOptions(next) {
+      o = next;
+      target = next.rebuffer;
+      rebuffer = next.rebuffer > 0;
+    },
     release() {
       started = true;
       if (holding) release(); else hooks.play();

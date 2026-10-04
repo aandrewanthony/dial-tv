@@ -64,7 +64,7 @@ for (const name of names) {
     [...document.querySelectorAll('.channels > button')].find((x) => x.querySelector('b').textContent === name).click();
     const t0 = performance.now();
     let first = null, lastT = null, lastWall = t0, frozenSince = null;
-    let stalls = 0, stalled = 0, skips = 0, skipped = 0, played = 0, resets = 0, waiting = 0, error = null, lat = [], ahead = [];
+    let stalls = 0, stalled = 0, skips = 0, skipped = 0, played = 0, resets = 0, waiting = 0, error = null, lat = [], ahead = [], heights = [];
     const v0 = document.querySelector('.hero video');
     const onWaiting = () => { if (first !== null) waiting++; };
     v0.addEventListener('waiting', onWaiting);
@@ -78,7 +78,8 @@ for (const name of names) {
       if (err) { error = err.textContent; break; }
       const t = v.currentTime;
       if (first === null) {
-        if (lastT !== null && t > lastT && v.readyState >= 3) { first = now; frozenSince = null; }
+        // !paused: a player holding for its start cushion can move currentTime to the first buffered frame while paused.
+        if (lastT !== null && t > lastT && v.readyState >= 3 && !v.paused) { first = now; frozenSince = null; }
         lastT = t; lastWall = now;
         continue;
       }
@@ -92,6 +93,7 @@ for (const name of names) {
       } else if (frozenSince === null) frozenSince = lastWall;
       lastT = t; lastWall = now;
       if (wrap?.dataset.latency) lat.push(+wrap.dataset.latency);
+      if (v.videoHeight) heights.push(v.videoHeight);
       for (let i = 0; i < v.buffered.length; i++) if (v.buffered.start(i) <= t + 0.1 && v.buffered.end(i) >= t) ahead.push(v.buffered.end(i) - t);
     }
     const now = performance.now();
@@ -105,11 +107,13 @@ for (const name of names) {
       stalls, stalled, skips, skipped, resets, waiting,
       behind: first === null ? null : (now - t0) / 1000 - played - skipped,
       latency: avg(lat), ahead: avg(ahead),
+      // Adaptive streams: share of the time below the tallest rendition seen (quality dropped).
+      lowq: heights.length ? heights.filter((h) => h < Math.max(...heights)).length / heights.length : null,
     };
   }, { name, seconds });
   rows.push(r);
   const f = (x, d = 1) => (x == null ? '—' : x.toFixed(d));
-  console.log(`${r.name.padEnd(36)} ${r.engine.padEnd(9)} startup ${f(r.startup)}s  stalls ${String(r.stalls).padStart(2)} (${f(r.stalled)}s)  skips ${r.skips} (${f(r.skipped)}s)  behind ${f(r.behind)}s  avg-ahead ${f(r.ahead)}s${r.latency != null ? `  hls-latency ${f(r.latency)}s` : ''}${r.resets ? `  resets ${r.resets}` : ''}${r.error ? `  ERROR ${r.error}` : ''}`);
+  console.log(`${r.name.padEnd(36)} ${r.engine.padEnd(9)} startup ${f(r.startup)}s  stalls ${String(r.stalls).padStart(2)} (${f(r.stalled)}s)  skips ${r.skips} (${f(r.skipped)}s)  behind ${f(r.behind)}s  avg-ahead ${f(r.ahead)}s${r.latency != null ? `  hls-latency ${f(r.latency)}s` : ''}${r.lowq ? `  lowq ${Math.round(r.lowq * 100)}%` : ''}${r.resets ? `  resets ${r.resets}` : ''}${r.error ? `  ERROR ${r.error}` : ''}`);
   await page.waitForTimeout(1500);
 }
 // Leave the lab channel so its connection closes.
