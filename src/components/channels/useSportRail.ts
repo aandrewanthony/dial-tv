@@ -3,12 +3,15 @@ import { nowPlaying, programsByChannel, useApp } from '../../store/app';
 import { matchBroadcasts } from '../../lib/channelMatch';
 import { SPORTS, sportOfLeague, sportOfProgram, sportsOfName, type SportKey } from '../../lib/sportsOf';
 import type { OrgChannel, Organized } from '../../lib/channelOrg';
+import { isIdleFeed } from '../../lib/gameChannels';
 
 export interface SportBucket {
   /** Logical channel ids: airing this sport now first, then the sport's channels in lineup order. */
   ids: string[];
   /** Channels airing this sport right now (guide programme or a matched live game). */
   live: Set<string>;
+  /** How many of `ids` are empty numbered feeds (":Milb 06", "ESPN+ 111:"); they sort last and aren't counted. */
+  idle: number;
 }
 
 /**
@@ -24,6 +27,7 @@ export function useSportRail(live: OrgChannel[], org: Organized, now: number): M
   // By name: only channels the organizer put in Sports.
   const byName = useMemo(() => {
     const m = new Map<SportKey, string[]>();
+    const idle = new Set<string>();
     for (const c of live) {
       if (c.category !== 'Sports') continue;
       const ks = sportsOfName(c.displayName, c.rawGroup, c.country);
@@ -32,8 +36,11 @@ export function useSportRail(live: OrgChannel[], org: Organized, now: number): M
         if (!a) m.set(k, (a = []));
         a.push(c.id);
       }
+      if (isIdleFeed(c.rawName)) idle.add(c.id);
     }
-    return m;
+    // Real channels and feeds named for an event first, empty feeds last.
+    for (const [k, a] of m) m.set(k, [...a.filter((id) => !idle.has(id)), ...a.filter((id) => idle.has(id))]);
+    return { m, idle };
   }, [live]);
 
   return useMemo(() => {
@@ -60,8 +67,8 @@ export function useSportRail(live: OrgChannel[], org: Organized, now: number): M
     const out = new Map<SportKey, SportBucket>();
     for (const { key } of SPORTS) {
       const liveIds = nowOn.get(key) ?? new Set<string>();
-      const ids = [...liveIds, ...(byName.get(key) ?? []).filter((id) => !liveIds.has(id))];
-      out.set(key, { ids, live: liveIds });
+      const ids = [...liveIds, ...(byName.m.get(key) ?? []).filter((id) => !liveIds.has(id))];
+      out.set(key, { ids, live: liveIds, idle: ids.filter((id) => byName.idle.has(id) && !liveIds.has(id)).length });
     }
     return out;
   }, [byName, live, org, games, channels, overrides, programs, now]);

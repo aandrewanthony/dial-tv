@@ -1,4 +1,5 @@
 import type { Channel } from '../types';
+import { gameForBroadcasts, scheduleMatch } from './gameChannels';
 
 /**
  * Smart Sports Mapper: resolve a broadcaster name ("NFL Net", "ESPN2", "FOX") to
@@ -156,7 +157,8 @@ function prepared(channels: Channel[]): Prepared[] {
 export interface ChannelMatch {
   channel: Channel;
   confidence: number; // 0..1
-  reason: 'manual' | 'exact' | 'alias' | 'fuzzy';
+  /** 'event' / 'guide': found on the schedule (a feed named for the game, or a guide programme naming both teams). */
+  reason: 'manual' | 'exact' | 'alias' | 'fuzzy' | 'event' | 'guide';
 }
 
 function tokenSim(a: string, b: string) {
@@ -213,6 +215,18 @@ export function matchBroadcasts(
   channels: Channel[],
   overrides: Record<string, string> = NO_OVERRIDES,
 ): BroadcastMatch {
+  const byNetwork = matchByNetwork(broadcasts, channels, overrides);
+  // A channel the user mapped by hand always wins; otherwise the schedule beats the network name.
+  if (byNetwork?.reason === 'manual') return byNetwork;
+  const game = gameForBroadcasts(broadcasts);
+  if (game) {
+    const s = scheduleMatch(game, channels, (c) => c.id === byNetwork?.channel.id);
+    if (s) return { channel: s.channel, confidence: 0.99, reason: s.via, network: byNetwork?.channel.id === s.channel.id ? byNetwork.network : broadcasts[0] ?? '' };
+  }
+  return byNetwork;
+}
+
+function matchByNetwork(broadcasts: string[], channels: Channel[], overrides: Record<string, string>): BroadcastMatch {
   let byOv = broadcastCache.get(channels);
   if (!byOv) broadcastCache.set(channels, (byOv = new WeakMap()));
   let memo = byOv.get(overrides);

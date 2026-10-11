@@ -1234,3 +1234,13 @@ button.redZoneBtn.on svg { color: #111; fill: #111; }
 .liveDvr .vodBtns .liveBtn { font: 700 11px/1 var(--mono); letter-spacing: .04em; padding: 6px 8px; border: 1px solid #ffffff40; color: #ddd; }
 .liveDvr .vodBtns .liveBtn.on { border-color: var(--accent); color: var(--accent); }
 @media (max-width: 600px) { .liveDvr .vodBtns button:first-child, .liveDvr .vodBtns button:last-child { display: grid; } .liveDvr .liveBehind { display: none; } }
+
+/* Rail: the sports list is the main way in — bigger rows, icons and live badges. */
+.lineup { grid-template-columns: 236px minmax(0, 1fr); }
+.railItem.big { min-height: 38px; padding: 6px 9px; font-size: 14px; font-weight: 700; color: var(--text); gap: 10px; }
+.railItem.big .railEmoji { width: 22px; font-size: 19px; filter: none; }
+.railItem.big .railCount { font-size: 11px; }
+.railItem.big .railLive { font-size: 10.5px; line-height: 17px; padding: 0 7px; border-radius: 9px; }
+.railItem.big.dim { min-height: 28px; font-size: 12px; font-weight: 600; }
+.railItem.big.dim .railEmoji { font-size: 14px; }
+.railItemWrap > button.railSection.fold { font-size: 10.5px; color: var(--muted); padding-top: 12px; }

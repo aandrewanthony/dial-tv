@@ -1,4 +1,5 @@
 import type { GameOdds, GameSituation, League, SportEvent, Team } from '../types';
+import { registerGame } from '../lib/gameChannels';
 import type { SportsProvider } from './types';
 import { safeImageUrl } from '../lib/url';
 
@@ -102,7 +103,7 @@ export function parseScoreboard(league: League, json: any): SportEvent[] {
       const n = g.media?.shortName;
       if (n && g.type?.shortName !== 'Radio' && !broadcasts.includes(n)) broadcasts.push(n);
     }
-    out.push({
+    const ev: SportEvent = {
       id: `${league}:${e.id}`,
       league,
       start,
@@ -123,7 +124,9 @@ export function parseScoreboard(league: League, json: any): SportEvent[] {
       statusName,
       postponed: postponed || undefined,
       canceled: canceled || undefined,
-    });
+    };
+    registerGame(ev); // lets channel matching use the schedule (lib/gameChannels.ts)
+    out.push(ev);
   }
   return out;
 }

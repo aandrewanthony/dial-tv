@@ -8,6 +8,11 @@ import { useEngine } from '../hooks/useEngine';
 import { dvrBridge, initDvr, useDvr } from '../lib/dvr';
 import { initRecRules } from '../lib/dvrRules';
 import { startDeadChecker } from '../lib/deadChecker';
+import { setGuideAccess } from '../lib/gameChannels';
+import { programsByChannel } from '../store/app';
+
+// Game → channel matching reads the TV guide (lib/gameChannels.ts).
+setGuideAccess(() => programsByChannel(useApp.getState().programs));
 import { SearchPalette } from '../components/SearchPalette';
 import { Modal } from '../components/ui';
 import { clutchInfo } from '../lib/sports';

@@ -283,7 +283,7 @@ export default function WatchPage() {
         const has = (k: SportKey) => sports.get(k)!.ids.length > 0;
         for (const sp of [...SPORTS.filter((x) => has(x.key)), ...SPORTS.filter((x) => !has(x.key))]) {
           const b = sports.get(sp.key)!;
-          items.push({ key: `sport:${sp.key}`, label: sp.label, count: b.ids.length, icon: sp.icon, live: b.live.size, dim: !b.ids.length });
+          items.push({ key: `sport:${sp.key}`, label: sp.label, count: b.ids.length - b.idle || b.ids.length, icon: sp.icon, live: b.live.size, dim: !b.ids.length, big: true });
         }
       }
     }
@@ -443,7 +443,7 @@ export default function WatchPage() {
             return (
               <button key={sp.key} className={`sportTab ${rail === key ? 'on' : ''}`} aria-pressed={rail === key} onClick={() => pickRail(key)}>
                 <span className="sportIcon" aria-hidden>{sp.icon}</span>
-                <span><b>{sp.label}</b><small>{b.live.size ? <em>{b.live.size} live</em> : null}{b.live.size ? ' · ' : ''}{b.ids.length}</small></span>
+                <span><b>{sp.label}</b><small>{b.live.size ? <em>{b.live.size} live</em> : null}{b.live.size ? ' · ' : ''}{b.ids.length - b.idle || b.ids.length}</small></span>
               </button>
             );
           })}

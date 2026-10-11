@@ -20,6 +20,8 @@ export interface RailItem {
   live?: number;
   /** Nothing to show (a sport with no channels): listed, but greyed out. */
   dim?: boolean;
+  /** Larger row (the sports list). */
+  big?: boolean;
   /** Only the section header (a folded section). */
   headerOnly?: boolean;
 }
@@ -71,7 +73,7 @@ export function GroupRail({ items, value, onChange, onToggle, collapsed, onColla
               </button>
             ) : (
               <button
-                className={`railItem ${value === it.key ? 'on' : ''} ${it.child ? 'child' : ''} ${it.dim ? 'dim' : ''}`}
+                className={`railItem ${value === it.key ? 'on' : ''} ${it.child ? 'child' : ''} ${it.dim ? 'dim' : ''} ${it.big ? 'big' : ''}`}
                 aria-pressed={value === it.key}
                 disabled={it.dim}
                 onClick={() => onChange(it.key)}
