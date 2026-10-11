@@ -98,6 +98,20 @@ export const desktop = (): DesktopBridge | undefined =>
 
 export const isDesktop = () => !!desktop();
 
+/**
+ * Mobile shell (the iPad app, ios/): the page is served from a small server inside the app, which also
+ * relays downloads at /p/<scheme>/<host>/<path> so playlists and guides load from any host (no CORS).
+ */
+export const shell = (): { platform: string } | undefined =>
+  typeof window !== 'undefined' ? (window as unknown as { dialShell?: { platform: string } }).dialShell : undefined;
+
+/** In the mobile shell: the relay URL for a download. Elsewhere: the URL unchanged. */
+export function viaShell(url: string): string {
+  if (!shell()) return url;
+  const m = /^(https?):\/\/([^/?#]+)(.*)$/i.exec(url);
+  return m ? `${location.origin}/p/${m[1].toLowerCase()}/${m[2]}${m[3].startsWith('/') || !m[3] ? m[3] : '/' + m[3]}` : url;
+}
+
 async function maybeGunzip(res: Response, url: string): Promise<string> {
   const buf = new Uint8Array(await res.arrayBuffer());
   const gz = buf[0] === 0x1f && buf[1] === 0x8b;
@@ -110,9 +124,9 @@ async function maybeGunzip(res: Response, url: string): Promise<string> {
 export async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
   let res: Response;
   try {
-    res = await fetch(url, { signal });
+    res = await fetch(viaShell(url), { signal });
   } catch (e) {
-    if (!isDesktop()) {
+    if (!isDesktop() && !shell()) {
       throw new Error('Request blocked. The server may not allow browser access (CORS) — use the Dial TV desktop app, which works with any provider.');
     }
     throw e;

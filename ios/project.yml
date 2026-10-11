@@ -1,0 +1,41 @@
+# XcodeGen project for the Dial TV iPad / iPhone shell. Built on GitHub's macOS runner
+# (.github/workflows/ios.yml): npm run build, xcodegen generate, xcodebuild (unsigned), zip to .ipa.
+name: DialTV
+options:
+  bundleIdPrefix: com.dialtv
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  DialTV:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: ../dist
+        type: folder
+        buildPhase: resources
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Dial TV
+        CFBundleShortVersionString: "0.8.2"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIRequiresFullScreen: false
+        ITSAppUsesNonExemptEncryption: false
+        UIBackgroundModes: [audio]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Dial TV plays streams from devices on your network.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dialtv.player
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""

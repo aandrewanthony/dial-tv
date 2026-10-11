@@ -17,7 +17,7 @@ import type { Channel, Program } from '../types';
 import { dismissKey, isLive, orderedChannels, registerProgramIndex, useApp } from './app';
 import { isOnlineGuideUrl, lineupCountries, ONLINE_ID, onlineGuideUrl } from '../lib/onlineGuide';
 import { localeCountry } from '../lib/channelOrg';
-import { isDesktop } from '../lib/net';
+import { isDesktop, viaShell } from '../lib/net';
 import { decodeGuide, DEFAULT_DAYS, EpgMatcher, rowFields, type DecodedGuide, type GuideCache, type GuideSourceMeta, type Resolved } from '../workers/epgCore';
 import { clearGuideCache, readGuideCache, readGuidePrefs, writeGuidePrefs } from '../workers/guideDb';
 import { runGuideJob, type GuideJobProgress, type GuideJobRequest, type GuideJobSource } from '../workers/guideJob';
@@ -357,7 +357,7 @@ let jobSeq = 0;
 
 function makeRequest(): GuideJobRequest {
   const app = useApp.getState();
-  const sources: GuideJobSource[] = enabledEpgSources().map((e) => (e.kind === 'xmltv-file' ? { id: e.id, name: e.name, fileId: e.id } : { id: e.id, name: e.name, url: e.url }));
+  const sources: GuideJobSource[] = enabledEpgSources().map((e) => (e.kind === 'xmltv-file' ? { id: e.id, name: e.name, fileId: e.id } : { id: e.id, name: e.name, url: e.url ? viaShell(e.url) : e.url }));
   return {
     sources,
     channels: liveChannels().map((c) => ({ id: c.id, name: c.name, tvgId: c.tvgId })),

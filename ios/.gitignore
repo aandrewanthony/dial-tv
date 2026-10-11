@@ -1,0 +1,6 @@
+DialTV.xcodeproj
+Info.plist
+build
+Payload
+*.ipa
+Sources/Assets.xcassets/AppIcon.appiconset/icon.png
