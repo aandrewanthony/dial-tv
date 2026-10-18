@@ -38,20 +38,49 @@ export interface Resolved {
 // ---------- names ----------
 
 const PREFIX_RE = /^\s*(?:\[[^\]]{1,24}\]|\([A-Za-z]{2,7}\)|[A-Za-z]{2,7}\s*[|:▎┃]|[A-Za-z]{2,7}\s+[-–]\s+)\s*/;
-const QUALITY_RE = /\b(?:hd|fhd|uhd|sd|hq|lq|4k|8k|hevc|h\.?26[45]|x26[45]|\d{3,4}p|\d{2}fps|backup|raw|vip|multi|plus\s*\d*\s*hd)\b/g;
+const QUALITY_RE = /\b(?:hd|hdtv|fhd|uhd|sd|hq|lq|4k|8k|hevc|h\.?26[45]|x26[45]|\d{3,4}p|\d{2}fps|backup|raw|vip|multi|plus\s*\d*\s*hd)\b/g;
 
 /**
  * Normalized display name for matching: country/group prefixes and quality tags stripped.
  * "US| ESPN FHD" → "espn", "[UK] Sky Sports Main Event HD" → "sky sports main event".
  */
 export function epgNameKey(s: string): string {
-  let t = s;
+  // Guide names like "ESPN HDTV (Dish).us" (open-epg): drop the trailing country code.
+  // "US BTN2 (F)": a bare country code in front.
+  let t = s.replace(/\.[a-z]{2}$/i, '').replace(/^(US|USA|UK|CA)\s+(?=\S)/, '');
   for (let i = 0; i < 2; i++) {
     const r = t.replace(PREFIX_RE, '');
     if (r === t || !r.trim()) break;
     t = r;
   }
   return normalizeName(t).replace(QUALITY_RE, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Spelled-out network names in guides (open-epg, Gracenote-style) → the short names playlists use. Keys are epgNameKey()s. */
+const GUIDE_ALIASES: Record<string, string> = {
+  'turner network television': 'tnt', 'tbs superstation': 'tbs', 'home and garden television': 'hgtv',
+  'the learning channel': 'tlc', 'black entertainment television': 'bet', 'the oprah winfrey network': 'own',
+  'oprah winfrey network': 'own', 'women s entertainment network': 'we tv', 'women s entertainment': 'we tv',
+  'new england sports network': 'nesn', 'madison square garden': 'msg', 'msg network': 'msg', 'reelzchannel': 'reelz',
+  'axstv': 'axs tv', 'inspirational network': 'insp', 'insp tv': 'insp', 'ion east cable dish': 'ion', 'ion directv': 'ion',
+  'great entertainment television': 'great tv', 'american heroes channel': 'ahc', 'dogtv': 'dog tv', 'fox sports 1': 'fs1',
+  'fox sports 2': 'fs2', 'fox news channel': 'fox news', 'arts and entertainment': 'a and e', 'a and e network': 'a and e',
+  'usa network': 'usa', 'cnn international': 'cnn international', 'turner classic movies': 'tcm', 'me tv': 'metv',
+  'espn news': 'espnews', 'cbs sports network': 'cbs sports network', 'big ten network': 'btn', 'nfl network': 'nfl network',
+  'golf channel': 'golf', 'the golf channel': 'golf', 'tennis channel': 'tennis channel', 'national geographic': 'nat geo',
+  'msg national': 'msg', 'msg2': 'msg 2', 'msg plus': 'msg plus', 'masn mid atlantic sports network': 'masn',
+  'masn2 mid atlantic sports network 2': 'masn 2', 'awe a wealth of entertainment': 'awe', 'pbs stream': 'pbs',
+  'vsin vegas sports and information network': 'vsin',
+  'nickelodeon': 'nick', 'tu deportes network u s': 'tudn', 'uptv': 'up tv', 'vice': 'viceland', 'univision deportes network': 'tudn', 'univision deportes': 'tudn', 'court tv mystery': 'court tv',
+};
+
+/** A name without generic trailing words: "comet tv" → "comet", "food network" → "food", "fx movie channel" stays. */
+/** Playlist spellings → guide keys ("ESPN U" → "espnu"). */
+const PLAYLIST_ALIASES: Record<string, string> = { 'espn u': 'espnu', 'masn2': 'masn 2', 'msgsn': 'msg 2', 'nesnplus': 'nesn plus', 'me tv': 'metv', 'espn 2': 'espn2', 'fs 1': 'fs1', 'fs 2': 'fs2' };
+
+function stripGeneric(k: string): string {
+  const s = k.replace(/\s+(tv|television|network|channel)$/, '').replace(/^the\s+/, '');
+  return s.length >= 2 && s !== k ? s : '';
 }
 
 /** tvg-id without a trailing country/region suffix: "ESPN.us" → "espn". */
@@ -84,6 +113,8 @@ export class EpgMatcher {
         if (l && !this.byName.has(l)) this.byName.set(l, c.id);
         const k = epgNameKey(n);
         if (k && !this.byNorm.has(k)) this.byNorm.set(k, c.id);
+        // Guides that spell networks out ("Turner Network Television", "Fox Sports 1") also answer to the short name.
+        for (const alt of [GUIDE_ALIASES[k], stripGeneric(k)]) if (alt && !this.byNorm.has(alt)) this.byNorm.set(alt, c.id);
         if (k && !this.normOf.has(c.id)) this.normOf.set(c.id, k);
       }
     }
@@ -103,7 +134,7 @@ export class EpgMatcher {
     const exact = this.byName.get(c.name.trim().toLowerCase());
     if (exact) return { key: exact, how: 'name' };
     const norm = epgNameKey(c.name);
-    const k = norm ? this.byNorm.get(norm) : undefined;
+    const k = norm ? this.byNorm.get(norm) ?? this.byNorm.get(PLAYLIST_ALIASES[norm] ?? '') ?? this.byNorm.get(stripGeneric(norm)) : undefined;
     if (k) return { key: k, how: 'similar' };
     return undefined;
   }

@@ -18,8 +18,17 @@ const FILES: Record<string, string> = {
   NG: 'NG1', KE: 'KE1', JM: 'JM1', LT: 'LT1', LV: 'LV1', LU: 'LU1', MT: 'MT1', CY: 'CY1', AL: 'AL1', BA: 'BA1', KZ: 'KZ1',
 };
 
-export const onlineGuideUrl = (country: string) => (FILES[country] ? `${BASE}${FILES[country]}.xml.gz` : undefined);
-export const isOnlineGuideUrl = (url?: string) => !!url && url.startsWith(BASE);
+/** US default (user's pick, 2026-10): open-epg's US file, ~840 channels incl. ESPN / ESPN2 / ESPNU / Big Ten / CBS Sports. */
+const OPEN_EPG_US = 'https://www.open-epg.com/files/unitedstates10.xml';
+
+export const onlineGuideUrl = (country: string) => (country === 'US' ? OPEN_EPG_US : FILES[country] ? `${BASE}${FILES[country]}.xml.gz` : undefined);
+export const isOnlineGuideUrl = (url?: string) => !!url && (url.startsWith(BASE) || url === OPEN_EPG_US);
+/** Extra guides that fill gaps in a country's default (open-epg's US file lacks MSG, MASN, PBS…). */
+export const EXTRA_GUIDES: Record<string, { id: string; name: string; url: string }[]> = {
+  US: [{ id: 'online-US-extra', name: 'Online guide · US (extra)', url: `${BASE}US2.xml.gz` }],
+};
+/** Countries whose online guide is added even when the playlist brings its own guide. */
+export const ALWAYS_ONLINE = new Set(['US']);
 export const ONLINE_ID = (country: string) => `online-${country}`;
 
 /** The lineup's main countries: up to 2 with at least 10% of live channels (or the locale's country). */

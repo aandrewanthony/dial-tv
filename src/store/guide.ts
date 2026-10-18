@@ -15,7 +15,7 @@
 import { create } from 'zustand';
 import type { Channel, Program } from '../types';
 import { dismissKey, isLive, orderedChannels, registerProgramIndex, useApp } from './app';
-import { isOnlineGuideUrl, lineupCountries, ONLINE_ID, onlineGuideUrl } from '../lib/onlineGuide';
+import { ALWAYS_ONLINE, EXTRA_GUIDES, isOnlineGuideUrl, lineupCountries, ONLINE_ID, onlineGuideUrl } from '../lib/onlineGuide';
 import { localeCountry } from '../lib/channelOrg';
 import { isDesktop, viaShell } from '../lib/net';
 import { decodeGuide, DEFAULT_DAYS, EpgMatcher, rowFields, type DecodedGuide, type GuideCache, type GuideSourceMeta, type Resolved } from '../workers/epgCore';
@@ -304,13 +304,26 @@ export function ensureOnlineGuide() {
   const g = useGuide.getState();
   const own = app.epgSources.filter((e) => e.enabled && !isOnlineGuideUrl(e.url));
   const weak = !own.length || (g.loaded && !g.loading && g.liveChannels > 0 && g.matched / g.liveChannels < 0.5);
-  if (!weak) return;
-  const add = lineupCountries(live, localeCountry())
+  const countries = lineupCountries(live, localeCountry());
+  // An online guide added earlier with an older link (e.g. epgshare for the US): switch it to the current default.
+  const stale = app.epgSources.filter((e) => /^online-[A-Z]{2}$/.test(e.id) && isOnlineGuideUrl(e.url) && e.url !== onlineGuideUrl(e.id.slice(7)));
+  if (stale.length) {
+    app.update((st) => ({ epgSources: st.epgSources.map((e) => (stale.some((x) => x.id === e.id) && onlineGuideUrl(e.id.slice(7)) ? { ...e, url: onlineGuideUrl(e.id.slice(7))!, error: undefined } : e)) }));
+    setTimeout(() => void loadGuide({ background: true }), 1500);
+  }
+  const add = countries
+    .filter((cc) => weak || ALWAYS_ONLINE.has(cc))
     .map((cc) => ({ cc, url: onlineGuideUrl(cc)! }))
     .filter((x) => !app.epgSources.some((e) => e.url === x.url) && !app.dismissedEpgUrls.includes(x.url) && !app.dismissedEpgUrls.includes(dismissKey(x.url)));
-  if (!add.length) return;
+  const extra = countries.filter((cc) => weak || ALWAYS_ONLINE.has(cc)).flatMap((cc) => EXTRA_GUIDES[cc] ?? [])
+    .filter((e) => !app.epgSources.some((s) => s.id === e.id || s.url === e.url) && !app.dismissedEpgUrls.includes(e.url));
+  if (!add.length && !extra.length) return;
   app.update((st) => ({
-    epgSources: [...st.epgSources, ...add.map((x) => ({ id: ONLINE_ID(x.cc), name: `Online guide · ${x.cc}`, kind: 'xmltv-url' as const, url: x.url, enabled: true }))],
+    epgSources: [
+      ...st.epgSources,
+      ...add.map((x) => ({ id: ONLINE_ID(x.cc), name: `Online guide · ${x.cc}`, kind: 'xmltv-url' as const, url: x.url, enabled: true })),
+      ...extra.map((e) => ({ ...e, kind: 'xmltv-url' as const, enabled: true })),
+    ],
   }));
 }
 

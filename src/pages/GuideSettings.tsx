@@ -80,7 +80,7 @@ export function GuideDataPanel() {
 
       <div className="guidePrefs">
         <div className="setting">
-          <div><b>Online guide</b><span>Free listings from epgshare01.online for your channels’ countries, added automatically when your playlist has no guide or its guide misses most channels.</span></div>
+          <div><b>Online guide</b><span>Free listings added automatically: open-epg.com for US channels (always), epgshare01.online for other countries when your playlist has no guide or its guide misses most channels.</span></div>
           <Toggle on={prefs.online} label="Online guide" onChange={(v) => { useGuidePrefs.setState({ online: v }); if (v) ensureOnlineGuide(); }} />
         </div>
         <div className="setting">

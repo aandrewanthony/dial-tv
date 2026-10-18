@@ -62,7 +62,8 @@ export interface BufferTuning {
 export const BUFFER_PROFILES: Record<BufferProfile, BufferTuning> = {
   'low-latency': { startGate: 0, rebuffer: 0.5, rebufferMax: 1, maxWait: 4, chase: true, syncAbove: 3, hlsSyncCount: 2, hlsForward: 8 },
   balanced: { startGate: 3, rebuffer: 1, rebufferMax: 2, maxWait: 3, chase: false, syncAbove: 20, hlsSyncCount: 3, hlsForward: 20 },
-  auto: { startGate: 6, rebuffer: 1.5, rebufferMax: 3, maxWait: 4, chase: false, syncAbove: 40, hlsSyncCount: 2, hlsForward: 30 },
+  // Auto: hold ~6 s before starting and 3–6 s after a hiccup (a ~3 s cushion stalled on ESPN, 2026-10).
+  auto: { startGate: 6, rebuffer: 3, rebufferMax: 6, maxWait: 9, chase: false, syncAbove: 40, hlsSyncCount: 2, hlsForward: 30 },
   smooth: { startGate: 10, rebuffer: 2, rebufferMax: 4, maxWait: 6, chase: false, syncAbove: 0, hlsSyncCount: 4, hlsForward: 45 },
   max: { startGate: 15, rebuffer: 3, rebufferMax: 6, maxWait: 8, chase: false, syncAbove: 0, hlsSyncCount: 5, hlsForward: 60 },
 };
