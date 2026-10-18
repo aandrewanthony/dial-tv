@@ -18,8 +18,8 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: Dial TV
-        CFBundleShortVersionString: "0.8.2"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "0.8.3"
+        CFBundleVersion: "2"
         UILaunchScreen: {}
         UIRequiresFullScreen: false
         ITSAppUsesNonExemptEncryption: false
