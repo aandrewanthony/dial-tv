@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, CircleDot, CalendarDays, CalendarClock, Clapperboard, Gamepad2, Grid2x2, Home, ListVideo, Lock, Radio, Search, Settings, Shield, Ticket, Trophy, Tv, X, Flame, Bell, Zap,
+  AlertTriangle, CircleDot, CalendarDays, CalendarClock, Clapperboard, Gamepad2, Grid2x2, Home, ListVideo, Lock, Radio, Search, Settings, Shield, Ticket, Trophy, Tv, X, Flame, Bell, Zap, LayoutGrid, MonitorPlay,
 } from 'lucide-react';
 import { navigate, sectionOf, useRoute, type Route, type Section } from './router';
 import { lockedSet, orderedChannels, sha256, showScore, useApp } from '../store/app';
@@ -8,6 +8,7 @@ import { useEngine } from '../hooks/useEngine';
 import { dvrBridge, initDvr, useDvr } from '../lib/dvr';
 import { initRecRules } from '../lib/dvrRules';
 import { startDeadChecker } from '../lib/deadChecker';
+import { useStartRoute } from '../components/tv/StartUp';
 import { setGuideAccess } from '../lib/gameChannels';
 import { programsByChannel } from '../store/app';
 
@@ -32,9 +33,11 @@ const MultiviewPage = lazy(() => import('../pages/MultiviewPage'));
 const SchedulePage = lazy(() => import('../pages/SchedulePage'));
 const SettingsPage = lazy(() => import('../pages/SettingsPage'));
 const RecordingsPage = lazy(() => import('../pages/RecordingsPage'));
+const TvHomePage = lazy(() => import('../pages/TvHomePage'));
 
 const NAV: Record<Section, [Route, typeof Tv, string][]> = {
   tv: [
+    ['tv', LayoutGrid, 'Home'],
     ['watch', Tv, 'Live TV'],
     ['guide', CalendarDays, 'Guide'],
     ['movies', Clapperboard, 'Movies & Series'],
@@ -44,6 +47,7 @@ const NAV: Record<Section, [Route, typeof Tv, string][]> = {
   ],
   sports: [
     ['home', Home, 'Game Day'],
+    ['sportswatch', MonitorPlay, 'Watch Sports'],
     ['sports', Trophy, 'Scores'],
     ['teams', Shield, 'My Teams'],
     ['fantasy', Gamepad2, 'Fantasy'],
@@ -56,16 +60,18 @@ const SHARED_NAV: [Route, typeof Tv, string][] = [
 ];
 
 const TITLES: Record<Route, [string, string]> = {
-  home: ['GAME DAY', 'Your Sports Command Center'],
+  tv: ['DIAL TV', 'Home'],
+  home: ['DIAL TV SPORTS', 'Game Day'],
+  sportswatch: ['DIAL TV SPORTS', 'Watch Sports'],
   watch: ['LIVE', 'Live TV'],
   guide: ['LISTINGS', 'Program Guide'],
-  sports: ['SCORES', 'Scores'],
-  fantasy: ['FANTASY', 'Fantasy Live'],
-  bets: ['SPORTSBOOKS', 'Bets & Odds'],
+  sports: ['DIAL TV SPORTS', 'Scores'],
+  fantasy: ['DIAL TV SPORTS', 'Fantasy Live'],
+  bets: ['DIAL TV SPORTS', 'Bets & Odds'],
   movies: ['ON DEMAND', 'Movies & Series'],
   recordings: ['DVR', 'Recordings'],
   channels: ['CABLE MODE', 'My Channels'],
-  teams: ['FAVORITES', 'My Teams'],
+  teams: ['DIAL TV SPORTS', 'My Teams'],
   multiview: ['2×2', 'Multiview'],
   schedule: ['PLANNER', 'Smart Schedule'],
   settings: ['SYSTEM', 'Settings'],
@@ -78,8 +84,9 @@ export default function App() {
   useEngine();
   useEffect(() => { initDvr(); initRecRules(); }, []);
   useEffect(() => startDeadChecker(), []);
+  useStartRoute(useApp((s) => s.channels.length > 0));
   const { route } = useRoute();
-  useRemoteCommands(openWatch, route === 'watch');
+  useRemoteCommands(openWatch, route === 'watch' || route === 'sportswatch');
   const hydrated = useApp((s) => s.hydrated);
   const toasts = useApp((s) => s.toasts);
   const dismiss = useApp((s) => s.dismissToast);
@@ -112,11 +119,11 @@ export default function App() {
   useEffect(() => { const s = sectionOf(route); if (s) setSection(s); }, [route]);
 
   return (
-    <div className={`app ${density} ${theater && route === 'watch' ? 'theater' : ''}`}>
+    <div className={`app ${density} ${theater && (route === 'watch' || route === 'sportswatch') ? 'theater' : ''}`}>
       <aside className="nav">
-        <div className="brand"><Radio />DIAL<span>TV</span></div>
+        <div className="brand"><Radio />DIAL<span>TV</span>{section === 'sports' && <em className="brandSports">SPORTS</em>}</div>
         <div className="sectionSwitch" role="tablist" aria-label="Section">
-          <button role="tab" aria-selected={section === 'tv'} className={section === 'tv' ? 'on' : ''} onClick={() => navigate('watch')}><Tv /> TV</button>
+          <button role="tab" aria-selected={section === 'tv'} className={section === 'tv' ? 'on' : ''} onClick={() => navigate('tv')}><Tv /> TV</button>
           <button role="tab" aria-selected={section === 'sports'} className={section === 'sports' ? 'on' : ''} onClick={() => navigate('home')}><Trophy /> Sports</button>
         </div>
         {[...NAV[section].filter(([id]) => id !== 'recordings' || dvrBridge()), ...SHARED_NAV].map(([id, Icon, label], i) => (
@@ -142,7 +149,9 @@ export default function App() {
         {!hydrated ? <div className="loadingPage">Loading…</div> : (
           <Suspense fallback={<div className="loadingPage">Loading…</div>}>
             {route === 'home' && <HomePage />}
-            {route === 'watch' && <WatchPage />}
+            {route === 'tv' && <TvHomePage />}
+            {route === 'watch' && <WatchPage key="tv" mode="tv" />}
+            {route === 'sportswatch' && <WatchPage key="sports" mode="sports" />}
             {route === 'guide' && <GuidePage />}
             {route === 'sports' && <SportsPage />}
             {route === 'fantasy' && <FantasyPage />}
@@ -220,11 +229,11 @@ function useGlobalKeys(route: Route) {
       switch (e.key) {
         case 'ArrowUp':
         case 'PageUp':
-          if (route === 'watch') { e.preventDefault(); zap(-1); }
+          if (route === 'watch' || route === 'sportswatch') { e.preventDefault(); zap(-1); }
           break;
         case 'ArrowDown':
         case 'PageDown':
-          if (route === 'watch') { e.preventDefault(); zap(1); }
+          if (route === 'watch' || route === 'sportswatch') { e.preventDefault(); zap(1); }
           break;
         case 'l': go(s.prevChannelId); break;
         case 'g': navigate('guide'); break;

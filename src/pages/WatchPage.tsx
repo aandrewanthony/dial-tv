@@ -24,7 +24,7 @@ import { StartUpAsk, useStartUp } from '../components/tv/StartUp';
 import { remoteGame, useGameFeed } from '../lib/penalty';
 import { RedZoneButton, useRedZoneSwitch } from '../components/tv/RedZone';
 import { SPORTS, sportInfo, type SportKey } from '../lib/sportsOf';
-import { countryName, defaultGroupLabel } from '../lib/channelOrg';
+import { useProviderCategories } from '../components/channels/useCategories';
 import { QualityButton } from '../components/channels/ChannelMenu';
 import { RecordButton } from '../components/tv/RecordButton';
 import { DeadBar } from '../components/channels/DeadChannels';
@@ -41,7 +41,7 @@ const BANNER_MS = 4000;
  * up/down (includes My Channels) · digits tune by number · plus the player keys.
  * The lineup is organized (lib/channelOrg.ts): duplicates merged, clean names, a group rail.
  */
-export default function WatchPage() {
+export default function WatchPage({ mode = 'tv' }: { mode?: 'tv' | 'sports' }) {
   const { live, full, groups, org, dead } = useOrganized();
   const channels = useApp((s) => s.channels);
   const currentId = useApp((s) => s.currentId);
@@ -56,7 +56,10 @@ export default function WatchPage() {
   const loadingSources = useApp((s) => s.loadingSources);
   const playlistError = useApp((s) => s.playlists.find((p) => p.error)?.error);
   const tune = useApp((s) => s.tune);
-  const { recent, railCollapsed, railGroup, railFolds, variantChoice } = useChannelPrefs(useShallow((s) => ({ recent: s.recent, railCollapsed: s.railCollapsed, railGroup: s.railGroup, railFolds: s.railFolds, variantChoice: s.variantChoice })));
+  const { recent, railCollapsed, tvRail, sportsRail, railFolds, variantChoice } = useChannelPrefs(useShallow((s) => ({ recent: s.recent, railCollapsed: s.railCollapsed, tvRail: s.railGroup, sportsRail: s.sportsRail, railFolds: s.railFolds, variantChoice: s.variantChoice })));
+  // Regular TV and Dial TV Sports each remember their own rail selection.
+  const railGroup = mode === 'sports' ? sportsRail : tvRail;
+  const setRail = (k: string) => setChannelPrefs(mode === 'sports' ? { sportsRail: k } : { railGroup: k });
   const personalDefs = useTv((s) => s.personal);
   const durations = useTv((s) => s.durations);
   const tvHydrated = useTv((s) => s.hydrated);
@@ -260,70 +263,52 @@ export default function WatchPage() {
   }, [current, now, ctx, guideOpen, favList, phoneGame]);
   useRedZoneSwitch(current?.id, org);
 
-  // Group rail: All, Favorites, Recently watched, My Channels, Sports (one row per sport), then the
-  // visible groups folded by country (home country open).
-  const railItems = useMemo<RailItem[]>(() => {
-    const counts = new Map<string, number>();
-    for (const c of live) counts.set(c.groupKey, (counts.get(c.groupKey) ?? 0) + 1);
-    const items: RailItem[] = [
-      { key: 'all', label: 'All channels', count: list.length, icon: <LayoutList /> },
-      { key: 'fav', label: 'Favorites', count: list.filter((c) => isFavorite(favorites, c)).length, icon: <Heart /> },
-      { key: 'recent', label: 'Recently watched', count: recent.filter((id) => list.some((c) => c.id === id)).length, icon: <Clock /> },
-    ];
-    if (personalChannels.length) items.push({ key: 'mine', label: 'My Channels', count: personalChannels.length, icon: <Tv /> });
-    if (dead.length) items.push({ key: 'dead', label: 'Dead channels', count: dead.length, icon: <Ban /> });
-
-    // Sports: every sport is listed (greyed out when the lineup has none), when the lineup has any sports at all.
-    if ([...sports.values()].some((b) => b.ids.length)) {
-      const open = railFolds['~sports'] ?? true;
-      const liveNow = [...sports.values()].reduce((n, b) => n + b.live.size, 0);
-      items.push({ key: 'sport:hdr', label: '', count: 0, section: liveNow ? `SPORTS · ${liveNow} ON NOW` : 'SPORTS', sectionKey: '~sports', sectionOpen: open, headerOnly: true });
-      if (open) {
-        // Sports with channels first (in the standard order), then the rest greyed out.
-        const has = (k: SportKey) => sports.get(k)!.ids.length > 0;
-        for (const sp of [...SPORTS.filter((x) => has(x.key)), ...SPORTS.filter((x) => !has(x.key))]) {
-          const b = sports.get(sp.key)!;
-          items.push({ key: `sport:${sp.key}`, label: sp.label, count: b.ids.length - b.idle || b.ids.length, icon: sp.icon, live: b.live.size, dim: !b.ids.length, big: true });
-        }
-      }
-    }
-
-    // Groups, folded by country.
-    const visibleGroups = groups.filter((g) => !g.hidden && counts.get(g.key));
-    const byCountry = new Map<string, typeof visibleGroups>();
-    for (const g of visibleGroups) {
-      const c = g.country ?? '';
-      if (!byCountry.has(c)) byCountry.set(c, []);
-      byCountry.get(c)!.push(g);
-    }
-    const flat = byCountry.size <= 1;
-    const home = visibleGroups[0]?.country ?? '';
-    let first = true;
-    for (const [code, gs] of byCountry) {
-      const section = first ? 'GROUPS' : undefined;
-      first = false;
-      const childLabel = (g: (typeof gs)[number]) => (g.label === defaultGroupLabel(g.country, g.category) ? g.category : g.label);
-      if (flat) {
-        gs.forEach((g, i) => items.push({ key: g.key, label: code ? childLabel(g) : g.label, count: counts.get(g.key)!, ...(i === 0 ? { section } : {}) }));
-        continue;
-      }
-      const open = railFolds[code] ?? (code === home || gs.some((g) => g.key === railGroup));
-      const total = gs.reduce((n, g) => n + counts.get(g.key)!, 0);
-      items.push({
-        key: `fold:${code}`, label: code ? countryName(code) : 'Other', count: total, fold: true, open, section,
-        icon: code ? <b className="ccBadge">{code}</b> : undefined,
-      });
-      if (open) for (const g of gs) items.push({ key: g.key, label: childLabel(g), count: counts.get(g.key)!, child: true });
-    }
-    return items;
-  }, [live, list, groups, favorites, recent, personalChannels, sports, railFolds, railGroup, dead]);
-  const rail = railGroup === 'sport:live' || railItems.some((i) => i.key === railGroup && !i.fold && !i.dim) || groups.some((g) => g.key === railGroup) ? railGroup : 'all';
+  const categories = useProviderCategories(live, org);
   const liveSportIds = useMemo(() => {
     const seen = new Set<string>();
     for (const sp of SPORTS) for (const id of sports.get(sp.key)?.live ?? []) seen.add(id);
     return [...seen];
   }, [sports]);
-  const pickRail = (k: string) => { setFilter(''); setChannelPrefs({ railGroup: k }); };
+  const allSportIds = useMemo(() => {
+    const seen = new Set<string>(liveSportIds);
+    for (const sp of SPORTS) for (const id of sports.get(sp.key)?.ids ?? []) seen.add(id);
+    return [...seen];
+  }, [sports, liveSportIds]);
+
+  // Rail. Regular TV: All, Favorites, Recently watched, My Channels, then the provider's own categories.
+  // Dial TV Sports: On now, All sports, Favorites, Recently watched, then one row per sport.
+  const railItems = useMemo<RailItem[]>(() => {
+    const items: RailItem[] = [];
+    if (mode === 'sports') {
+      items.push({ key: 'sport:live', label: 'On now', count: liveSportIds.length, icon: '🔴', big: true, dim: !liveSportIds.length });
+      items.push({ key: 'sport:any', label: 'All sports', count: allSportIds.length, icon: '🏆', big: true });
+    } else {
+      items.push({ key: 'all', label: 'All channels', count: list.length, icon: <LayoutList /> });
+    }
+    items.push(
+      { key: 'fav', label: 'Favorites', count: list.filter((c) => isFavorite(favorites, c)).length, icon: <Heart /> },
+      { key: 'recent', label: 'Recently watched', count: recent.filter((id) => list.some((c) => c.id === id)).length, icon: <Clock /> },
+    );
+    if (mode === 'tv' && personalChannels.length) items.push({ key: 'mine', label: 'My Channels', count: personalChannels.length, icon: <Tv /> });
+    if (dead.length) items.push({ key: 'dead', label: 'Dead channels', count: dead.length, icon: <Ban /> });
+
+    if (mode === 'sports') {
+      // Every sport is listed: ones with channels first, the rest greyed out.
+      const has = (k: SportKey) => sports.get(k)!.ids.length > 0;
+      let first = true;
+      for (const sp of [...SPORTS.filter((x) => has(x.key)), ...SPORTS.filter((x) => !has(x.key))]) {
+        const b = sports.get(sp.key)!;
+        items.push({ key: `sport:${sp.key}`, label: sp.label, count: b.ids.length - b.idle || b.ids.length, icon: sp.icon, live: b.live.size, dim: !b.ids.length, big: true, ...(first ? { section: 'SPORTS' } : {}) });
+        first = false;
+      }
+    } else {
+      categories.forEach((cat, i) => items.push({ key: `cat:${cat.name}`, label: cat.name, count: cat.ids.length, ...(i === 0 ? { section: 'CATEGORIES' } : {}) }));
+    }
+    return items;
+  }, [mode, list, favorites, recent, personalChannels, sports, dead, categories, liveSportIds, allSportIds]);
+  const defaultRail = mode === 'sports' ? (liveSportIds.length ? 'sport:live' : 'sport:any') : 'all';
+  const rail = railItems.some((i) => i.key === railGroup && !i.fold && !i.dim) ? railGroup : defaultRail;
+  const pickRail = (k: string) => { setFilter(''); setRail(k); };
   const toggleFold = (key: string) => {
     const code = key.startsWith('fold:') ? key.slice(5) : key;
     const cur = key.startsWith('fold:') ? !!railItems.find((i) => i.key === key)?.open : (railFolds[code] ?? true);
@@ -344,6 +329,15 @@ export default function WatchPage() {
     if (rail === 'recent') return recent.map((id) => list.find((c) => c.id === id)).filter((c): c is Channel => !!c);
     if (rail === 'mine') return personalChannels;
     if (rail === 'dead') return dead;
+    if (rail.startsWith('cat:')) {
+      const ids = categories.find((c) => `cat:${c.name}` === rail)?.ids ?? [];
+      const byId = new Map(live.map((c) => [c.id, c]));
+      return ids.map((id) => byId.get(id)).filter((c): c is (typeof live)[number] => !!c);
+    }
+    if (rail === 'sport:any') {
+      const byId = new Map(live.map((c) => [c.id, c]));
+      return allSportIds.map((id) => byId.get(id)).filter((c): c is (typeof live)[number] => !!c);
+    }
     if (rail === 'sport:live') {
       const byId = new Map(live.map((c) => [c.id, c]));
       return liveSportIds.map((id) => byId.get(id)).filter((c): c is (typeof live)[number] => !!c);
@@ -353,7 +347,7 @@ export default function WatchPage() {
       return (sports.get(rail.slice(6) as SportKey)?.ids ?? []).map((id) => byId.get(id)).filter((c): c is (typeof live)[number] => !!c);
     }
     return live.filter((c) => c.groupKey === rail);
-  }, [filter, list, live, rail, favorites, recent, personalChannels, sports, liveSportIds, dead]);
+  }, [filter, list, live, rail, favorites, recent, personalChannels, sports, liveSportIds, allSportIds, categories, dead]);
 
   if (!current) {
     return (
@@ -382,7 +376,7 @@ export default function WatchPage() {
     </>
   );
   const toggleTheater = () => useApp.setState((st) => ({ theater: !st.theater }));
-  const railLabel = rail === 'sport:live' ? '🔴 Sports on now' : rail.startsWith('sport:') ? `${sportInfo(rail.slice(6) as SportKey).icon} ${sportInfo(rail.slice(6) as SportKey).label}` : railItems.find((i) => i.key === rail)?.label ?? groups.find((g) => g.key === rail)?.label ?? 'All channels';
+  const railLabel = rail === 'sport:live' ? '🔴 Sports on now' : rail === 'sport:any' ? '🏆 All sports' : rail.startsWith('cat:') ? rail.slice(4) : rail.startsWith('sport:') ? `${sportInfo(rail.slice(6) as SportKey).icon} ${sportInfo(rail.slice(6) as SportKey).label}` : railItems.find((i) => i.key === rail)?.label ?? groups.find((g) => g.key === rail)?.label ?? 'All channels';
   const liveInRail = rail === 'sport:live' ? liveSportIds.length : rail.startsWith('sport:') ? sports.get(rail.slice(6) as SportKey)?.live.size ?? 0 : 0;
 
   return (
@@ -422,7 +416,7 @@ export default function WatchPage() {
               <Heart fill={fav ? 'currentColor' : 'none'} /> {fav ? 'Favorited' : 'Favorite'}
             </button>
             {!personal && <RecordButton channel={current} now={np} />}
-            <RedZoneButton />
+            {mode === 'sports' && <RedZoneButton />}
             {org1 && <QualityButton c={org1} />}
             {prev && <button onClick={() => tune(prev.id)} title="Last channel (L)"><History /> {isOrg(prev) ? prev.displayName : prev.name}</button>}
             {personal && <button onClick={() => navigate('channels')}><ListVideo /> Edit channel</button>}
@@ -432,7 +426,7 @@ export default function WatchPage() {
       </section>
 
       <StartUpAsk current={current} sportsWithChannels={SPORTS.filter((x) => sports.get(x.key)!.ids.length).map((x) => x.key)} />
-      {[...sports.values()].some((b) => b.ids.length) && (
+      {mode === 'sports' && [...sports.values()].some((b) => b.ids.length) && (
         <nav className="sportBar" aria-label="Sports">
           <button className={`sportTab live ${rail === 'sport:live' ? 'on' : ''}`} aria-pressed={rail === 'sport:live'} onClick={() => pickRail('sport:live')}>
             <span className="sportIcon" aria-hidden>🔴</span><span><b>On now</b><small>{liveSportIds.length} live</small></span>
@@ -447,8 +441,8 @@ export default function WatchPage() {
               </button>
             );
           })}
-          <button className={`sportTab all ${!rail.startsWith('sport:') ? 'on' : ''}`} aria-pressed={!rail.startsWith('sport:')} onClick={() => pickRail('all')}>
-            <span className="sportIcon" aria-hidden>📺</span><span><b>All TV</b><small>{list.length.toLocaleString()}</small></span>
+          <button className={`sportTab all ${rail === 'sport:any' ? 'on' : ''}`} aria-pressed={rail === 'sport:any'} onClick={() => pickRail('sport:any')}>
+            <span className="sportIcon" aria-hidden>🏆</span><span><b>All sports</b><small>{allSportIds.length.toLocaleString()}</small></span>
           </button>
         </nav>
       )}
@@ -457,7 +451,7 @@ export default function WatchPage() {
         <GroupRail
           items={railItems}
           value={rail}
-          onChange={(k) => { setFilter(''); setChannelPrefs({ railGroup: k }); }}
+          onChange={pickRail}
           collapsed={railCollapsed}
           onCollapse={(v) => setChannelPrefs({ railCollapsed: v })}
           onToggle={toggleFold}

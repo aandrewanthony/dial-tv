@@ -109,7 +109,7 @@ export function flushRemote() {
 /** Live TV is the default route (empty or unknown hash). */
 const routeIsWatch = () => {
   const r = location.hash.replace(/^#\/?/, '').split('/')[0];
-  return r === 'watch' || !(ROUTES as string[]).includes(r);
+  return r === 'watch' || r === 'sportswatch' || !(ROUTES as string[]).includes(r);
 };
 
 /** True while the remote server is on and at least one paired phone is connected (desktop only). */

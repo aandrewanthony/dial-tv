@@ -4,6 +4,7 @@ import { useApp, type Settings } from '../../store/app';
 import { setChannelPrefs } from '../../store/channelPrefs';
 import { SPORTS, type SportKey } from '../../lib/sportsOf';
 import { ChannelPicker } from '../ChannelPicker';
+import { navigate } from '../../app/router';
 import type { SportBucket } from '../channels/useSportRail';
 import type { Channel } from '../../types';
 
@@ -13,6 +14,23 @@ const setStart = (p: Partial<Pick<Settings, 'startup' | 'startChannel' | 'startS
   useApp.getState().update((st) => ({ settings: { ...st.settings, startupAsked: true, ...p } }));
 
 let applied = false;
+let routed = false;
+
+/**
+ * At launch (app opened on Home): a chosen channel opens Live TV, a chosen sport opens Dial TV Sports →
+ * Watch Sports. "Last channel" stays on Home.
+ */
+export function useStartRoute(hasChannels: boolean) {
+  const mode = useApp((s) => s.settings.startup);
+  useEffect(() => {
+    if (routed || !hasChannels) return;
+    routed = true;
+    const h = location.hash.replace(/^#\/?/, '');
+    if (h && h !== 'tv') return; // opened on a specific page
+    if (mode === 'channel') navigate('watch');
+    else if (mode === 'sport') navigate('sportswatch');
+  }, [hasChannels, mode]);
+}
 
 /**
  * Applies the start-up choice once per app run when Live TV first has channels: tune the chosen
@@ -28,7 +46,7 @@ export function useStartUp(list: Channel[], sports: Map<SportKey, SportBucket>) 
     const tune = useApp.getState().tune;
     if (mode === 'channel' && startChannel && list.some((c) => c.id === startChannel)) tune(startChannel);
     else if (mode === 'sport' && startSport) {
-      setChannelPrefs({ railGroup: `sport:${startSport}` });
+      setChannelPrefs({ sportsRail: `sport:${startSport}` });
       const b = sports.get(startSport as SportKey);
       const id = (b && ([...b.live][0] ?? b.ids[0])) as string | undefined;
       if (id) tune(id);

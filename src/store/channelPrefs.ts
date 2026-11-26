@@ -20,8 +20,10 @@ export interface ChannelPrefs extends OrgPrefs {
   /** Playlist ids the "Choose your channels" picker already ran for. */
   pickedSources: string[];
   railCollapsed: boolean;
-  /** Last group selected in the Live TV rail. */
+  /** Last group selected in the Live TV rail (regular TV). */
   railGroup: string;
+  /** Last selection in the Dial TV Sports rail. */
+  sportsRail: string;
   /** Rail folds the user opened/closed: country code (or '~sports') → open. Unset = default. */
   railFolds: Record<string, boolean>;
   /** Guide: sport filter ('' = everything, 'any' = all sports, or a sport key) and row order. */
@@ -44,6 +46,7 @@ export const DEFAULT_CHANNEL_PREFS: ChannelPrefs = {
   pickedSources: [],
   railCollapsed: false,
   railGroup: 'all',
+  sportsRail: 'sport:live',
   railFolds: {},
   guideSport: '',
   guideSort: 'live',
